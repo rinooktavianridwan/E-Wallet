@@ -1,0 +1,96 @@
+# E-Wallet
+
+Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek portofolio yang berfokus pada konsistensi data keuangan: transfer atomik, pencatatan transaksi gaya double-entry, dan penanganan akses bersamaan (concurrency).
+
+> **Status:** dalam pengembangan. Saat ini baru fondasi (skema database dan entity). Fitur lain ada di bagian [Rencana Fitur](#rencana-fitur).
+
+## Teknologi
+
+- Java 21
+- Spring Boot 4.1.1 (Web MVC, Data JPA, Validation, Security, Actuator)
+- PostgreSQL 16
+- Flyway (migrasi database)
+- Maven (Maven Wrapper)
+- Docker Compose (database untuk development)
+
+## Rencana Fitur
+
+- [ ] Registrasi dan login (JWT, password di-hash dengan BCrypt)
+- [ ] Cek saldo
+- [ ] Top up
+- [ ] Transfer antar pengguna (atomik, aman dari race condition)
+- [ ] Riwayat transaksi dengan paginasi
+- [ ] Idempotency key untuk mencegah transfer ganda
+- [ ] Dokumentasi API (OpenAPI/Swagger)
+- [ ] Test konkurensi dan integration test
+- [ ] Deploy beserta frontend
+
+## Desain Database
+
+Tiga tabel:
+
+| Tabel | Fungsi |
+|---|---|
+| `users` | Data autentikasi dan profil dasar |
+| `wallets` | Satu dompet per pengguna: saldo, status aktif, versi (optimistic locking) |
+| `transactions` | Log keuangan. Satu transfer menghasilkan dua baris (`DEBIT` untuk pengirim, `CREDIT` untuk penerima) dengan `reference_number` yang sama |
+
+Beberapa keputusan desain:
+
+- Uang disimpan sebagai `NUMERIC(19,2)` dan dihitung dengan `BigDecimal`, bukan `double`.
+- Database ikut menjaga integritas lewat constraint: `balance >= 0`, `amount > 0`, `UNIQUE(reference_number, wallet_id)`.
+- `transactions.balance_after` menyimpan saldo setelah mutasi untuk keperluan audit.
+- Skema dikelola Flyway (`src/main/resources/db/migration`); Hibernate hanya memvalidasi (`ddl-auto=validate`).
+
+## Struktur Proyek
+
+```
+src/main/java/com/ewallet/
+├── EwalletApplication.java
+├── entity/          Entity JPA: User, Wallet, Transaction, enum
+├── user/            repository
+├── wallet/          repository
+└── transaction/     repository
+src/main/resources/
+├── application.properties
+└── db/migration/    skrip Flyway
+```
+
+Pengelompokan per fitur; controller, service, dan dto ditambahkan seiring fitur dibuat.
+
+## Menjalankan Secara Lokal
+
+Prasyarat: JDK 21 dan Docker.
+
+1. Salin konfigurasi environment:
+   ```bash
+   cp .env.example .env
+   ```
+   Di PowerShell: `Copy-Item .env.example .env`. Sesuaikan nilainya jika perlu.
+2. Jalankan database:
+   ```bash
+   docker compose up -d
+   ```
+3. Jalankan aplikasi:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+   Di Windows: `mvnw.cmd spring-boot:run`.
+
+Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Karena belum ada konfigurasi security, semua endpoint masih dilindungi Spring Security bawaan dan meminta login.
+
+> Nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
+
+## Variabel Environment
+
+| Variabel | Fungsi | Contoh |
+|---|---|---|
+| `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/ewallet` |
+| `DB_USERNAME` | User database | `ewallet` |
+| `DB_PASSWORD` | Password database | |
+| `SERVER_PORT` | Port aplikasi | `8080` |
+| `JWT_SECRET` | Kunci penandatangan token (dipakai nanti) | string acak panjang |
+| `JWT_EXPIRATION_MINUTES` | Masa berlaku token (dipakai nanti) | `60` |
+| `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan (dipakai nanti) | `http://localhost:5173` |
+
+File `.env` tidak boleh di-commit. Untuk deployment, set variabel yang sama langsung di environment platform hosting.
