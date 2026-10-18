@@ -15,10 +15,7 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
 
 	Optional<Wallet> findByUserId(Long userId);
 
-	/**
-	 * Locks the given wallets (SELECT ... FOR UPDATE), ordered by id.
-	 * Always locking in ascending id order prevents deadlocks between concurrent transfers.
-	 */
+	// Kunci selalu urut berdasarkan id supaya dua transfer berlawanan arah tidak saling menunggu (deadlock)
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select w from Wallet w where w.id in :ids order by w.id asc")
 	List<Wallet> lockAllByIdOrdered(@Param("ids") List<Long> ids);

@@ -34,7 +34,6 @@ public class Wallet {
 	@Column(name = "is_active", nullable = false)
 	private boolean active = true;
 
-	// Optimistic locking: protects against lost updates on concurrent writes
 	@Version
 	@Column(nullable = false)
 	private long version;
@@ -83,13 +82,11 @@ public class Wallet {
 		return updatedAt;
 	}
 
-	/** Adds money to the balance. Amount must be positive. */
 	public void credit(BigDecimal amount) {
 		requirePositive(amount);
 		this.balance = this.balance.add(amount);
 	}
 
-	/** Removes money from the balance. Amount must be positive and not exceed the balance. */
 	public void debit(BigDecimal amount) {
 		requirePositive(amount);
 		if (this.balance.compareTo(amount) < 0) {

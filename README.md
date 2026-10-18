@@ -15,7 +15,8 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 
 ## Rencana Fitur
 
-- [ ] Registrasi dan login (JWT, password di-hash dengan BCrypt)
+- [x] Registrasi (`POST /api/auth/register`, password di-hash dengan BCrypt, wallet dibuat otomatis)
+- [ ] Login (JWT)
 - [ ] Cek saldo
 - [ ] Top up
 - [ ] Transfer antar pengguna (atomik, aman dari race condition)
@@ -48,6 +49,8 @@ Beberapa keputusan desain:
 src/main/java/com/ewallet/
 ├── EwalletApplication.java
 ├── entity/          Entity JPA: User, Wallet, Transaction, enum
+├── auth/            controller, service, dto (register)
+├── common/          config (security) dan exception (error handler)
 ├── user/            repository
 ├── wallet/          repository
 └── transaction/     repository
@@ -77,9 +80,25 @@ Prasyarat: JDK 21 dan Docker.
    ```
    Di Windows: `mvnw.cmd spring-boot:run`.
 
-Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Karena belum ada konfigurasi security, semua endpoint masih dilindungi Spring Security bawaan dan meminta login.
+Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Endpoint `/api/auth/**` dan `/actuator/health` terbuka; endpoint lain akan menolak request tanpa token (login/JWT menyusul).
 
-> Nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
+> Jika memakai Docker Compose, nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
+
+## Menjalankan Test
+
+Test memakai database terpisah bernama `ewallet_test` (supaya data development aman). Buat sekali:
+
+```bash
+psql -U <user> -c "CREATE DATABASE ewallet_test;"
+```
+
+Lalu jalankan:
+
+```bash
+./mvnw test
+```
+
+User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST_DB_URL`.
 
 ## Variabel Environment
 

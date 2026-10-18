@@ -17,10 +17,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * One ledger entry. A transfer produces two rows (DEBIT for sender, CREDIT for receiver)
- * that share the same reference number. Rows are never updated after creation.
- */
+// Satu baris = satu mutasi. Transfer menghasilkan dua baris (DEBIT dan CREDIT) dengan reference_number sama.
 @Entity
 @Table(name = "transactions")
 public class Transaction {
