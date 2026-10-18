@@ -15,6 +15,10 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
 
 	Optional<Wallet> findByUserId(Long userId);
 
+	// SELECT ... FOR UPDATE, harus dipanggil di dalam transaksi
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	Optional<Wallet> findWithLockByUserId(Long userId);
+
 	// Kunci selalu urut berdasarkan id supaya dua transfer berlawanan arah tidak saling menunggu (deadlock)
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select w from Wallet w where w.id in :ids order by w.id asc")

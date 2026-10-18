@@ -33,6 +33,20 @@ public class GlobalExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(WalletNotFoundException.class)
+	public ProblemDetail handleWalletNotFound(WalletNotFoundException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+		problem.setTitle("Wallet not found");
+		return problem;
+	}
+
+	@ExceptionHandler(WalletInactiveException.class)
+	public ProblemDetail handleWalletInactive(WalletInactiveException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+		problem.setTitle("Wallet inactive");
+		return problem;
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
 		Map<String, String> errors = new LinkedHashMap<>();

@@ -1,5 +1,6 @@
 package com.ewallet.user.controller;
 
+import com.ewallet.common.security.CurrentUser;
 import com.ewallet.user.dto.UserResponse;
 import com.ewallet.user.service.UserService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -20,6 +21,6 @@ public class UserController {
 
 	@GetMapping("/me")
 	public UserResponse me(@AuthenticationPrincipal Jwt jwt) {
-		return userService.getById(Long.parseLong(jwt.getSubject()));
+		return userService.getById(CurrentUser.id(jwt));
 	}
 }
