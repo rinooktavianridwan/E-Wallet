@@ -11,4 +11,6 @@ import java.util.UUID;
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 
 	Page<Transaction> findByWalletIdOrderByCreatedAtDesc(Long walletId, Pageable pageable);
+
+	Page<Transaction> findByWalletId(Long walletId, Pageable pageable);
 }
