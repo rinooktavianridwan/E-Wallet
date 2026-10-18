@@ -16,7 +16,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 ## Rencana Fitur
 
 - [x] Registrasi (`POST /api/auth/register`, password di-hash dengan BCrypt, wallet dibuat otomatis)
-- [ ] Login (JWT)
+- [x] Login (`POST /api/auth/login`, token JWT HS256) dan profil (`GET /api/users/me`)
 - [ ] Cek saldo
 - [ ] Top up
 - [ ] Transfer antar pengguna (atomik, aman dari race condition)
@@ -24,6 +24,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [ ] Idempotency key untuk mencegah transfer ganda
 - [ ] Dokumentasi API (OpenAPI/Swagger)
 - [ ] Test konkurensi dan integration test
+- [ ] Refresh token di PostgreSQL (rotasi dan logout yang mencabut sesi)
 - [ ] Deploy beserta frontend
 
 ## Desain Database
@@ -49,9 +50,9 @@ Beberapa keputusan desain:
 src/main/java/com/ewallet/
 ├── EwalletApplication.java
 ├── entity/          Entity JPA: User, Wallet, Transaction, enum
-├── auth/            controller, service, dto (register)
+├── auth/            controller, service, dto (register, login, JWT)
 ├── common/          config (security) dan exception (error handler)
-├── user/            repository
+├── user/            controller, service, dto, repository
 ├── wallet/          repository
 └── transaction/     repository
 src/main/resources/
@@ -80,7 +81,7 @@ Prasyarat: JDK 21 dan Docker.
    ```
    Di Windows: `mvnw.cmd spring-boot:run`.
 
-Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Endpoint `/api/auth/**` dan `/actuator/health` terbuka; endpoint lain akan menolak request tanpa token (login/JWT menyusul).
+Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Endpoint register, login, dan `/actuator/health` terbuka; endpoint lain wajib memakai header `Authorization: Bearer <token>`.
 
 > Jika memakai Docker Compose, nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
 
@@ -108,8 +109,8 @@ User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST
 | `DB_USERNAME` | User database | `ewallet` |
 | `DB_PASSWORD` | Password database | |
 | `SERVER_PORT` | Port aplikasi | `8080` |
-| `JWT_SECRET` | Kunci penandatangan token (dipakai nanti) | string acak panjang |
-| `JWT_EXPIRATION_MINUTES` | Masa berlaku token (dipakai nanti) | `60` |
+| `JWT_SECRET` | Kunci penandatangan token, wajib diisi, minimal 32 karakter | string acak panjang |
+| `JWT_EXPIRATION_MINUTES` | Masa berlaku token dalam menit | `60` |
 | `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan (dipakai nanti) | `http://localhost:5173` |
 
 File `.env` tidak boleh di-commit. Untuk deployment, set variabel yang sama langsung di environment platform hosting.

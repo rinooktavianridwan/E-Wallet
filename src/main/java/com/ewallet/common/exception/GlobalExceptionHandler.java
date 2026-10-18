@@ -19,6 +19,20 @@ public class GlobalExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(InvalidCredentialsException.class)
+	public ProblemDetail handleInvalidCredentials(InvalidCredentialsException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+		problem.setTitle("Invalid credentials");
+		return problem;
+	}
+
+	@ExceptionHandler(UserNotFoundException.class)
+	public ProblemDetail handleUserNotFound(UserNotFoundException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+		problem.setTitle("User not found");
+		return problem;
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
 		Map<String, String> errors = new LinkedHashMap<>();

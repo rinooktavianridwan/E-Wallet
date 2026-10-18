@@ -1,9 +1,13 @@
 package com.ewallet.auth;
 
+import com.ewallet.auth.dto.LoginRequest;
 import com.ewallet.auth.dto.RegisterRequest;
 import com.ewallet.auth.dto.RegisterResponse;
+import com.ewallet.auth.dto.TokenResponse;
 import com.ewallet.auth.service.AuthService;
+import com.ewallet.auth.service.JwtService;
 import com.ewallet.common.exception.EmailAlreadyUsedException;
+import com.ewallet.common.exception.InvalidCredentialsException;
 import com.ewallet.entity.User;
 import com.ewallet.entity.Wallet;
 import com.ewallet.user.repository.UserRepository;
@@ -18,6 +22,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +42,9 @@ class AuthServiceTest {
 
 	@Mock
 	private PasswordEncoder passwordEncoder;
+
+	@Mock
+	private JwtService jwtService;
 
 	@InjectMocks
 	private AuthService authService;
@@ -88,5 +96,42 @@ class AuthServiceTest {
 				.isInstanceOf(EmailAlreadyUsedException.class);
 
 		verify(walletRepository, never()).save(any(Wallet.class));
+	}
+
+	@Test
+	void login_returnsTokenWhenCredentialsMatch() {
+		User user = new User("budi@mail.com", "HASHED", "Budi");
+		when(userRepository.findByEmail("budi@mail.com")).thenReturn(Optional.of(user));
+		when(passwordEncoder.matches("rahasia123", "HASHED")).thenReturn(true);
+		when(jwtService.generateToken(user)).thenReturn("TOKEN");
+		when(jwtService.getExpiresInSeconds()).thenReturn(3600L);
+
+		TokenResponse response = authService.login(new LoginRequest(" Budi@Mail.com ", "rahasia123"));
+
+		assertThat(response.accessToken()).isEqualTo("TOKEN");
+		assertThat(response.tokenType()).isEqualTo("Bearer");
+		assertThat(response.expiresIn()).isEqualTo(3600L);
+	}
+
+	@Test
+	void login_rejectsWrongPassword() {
+		User user = new User("budi@mail.com", "HASHED", "Budi");
+		when(userRepository.findByEmail("budi@mail.com")).thenReturn(Optional.of(user));
+		when(passwordEncoder.matches("salah", "HASHED")).thenReturn(false);
+
+		assertThatThrownBy(() -> authService.login(new LoginRequest("budi@mail.com", "salah")))
+				.isInstanceOf(InvalidCredentialsException.class);
+
+		verify(jwtService, never()).generateToken(any(User.class));
+	}
+
+	@Test
+	void login_rejectsUnknownEmail() {
+		when(userRepository.findByEmail("tidakada@mail.com")).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> authService.login(new LoginRequest("tidakada@mail.com", "rahasia123")))
+				.isInstanceOf(InvalidCredentialsException.class);
+
+		verify(jwtService, never()).generateToken(any(User.class));
 	}
 }

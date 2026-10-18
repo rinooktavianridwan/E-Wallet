@@ -119,6 +119,66 @@ class AuthControllerIntegrationTest {
 				.andExpect(jsonPath("$.errors.password").exists());
 	}
 
+	@Test
+	void login_returnsBearerToken() throws Exception {
+		saveUser("budi@mail.com", "rahasia123");
+
+		mockMvc.perform(post("/api/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(loginJson("budi@mail.com", "rahasia123")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accessToken").isNotEmpty())
+				.andExpect(jsonPath("$.tokenType").value("Bearer"))
+				.andExpect(jsonPath("$.expiresIn").value(3600));
+	}
+
+	@Test
+	void login_ignoresEmailLetterCase() throws Exception {
+		saveUser("budi@mail.com", "rahasia123");
+
+		mockMvc.perform(post("/api/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(loginJson("BUDI@Mail.com", "rahasia123")))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void login_rejectsWrongPasswordAndUnknownEmail_withSameMessage() throws Exception {
+		saveUser("budi@mail.com", "rahasia123");
+
+		mockMvc.perform(post("/api/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(loginJson("budi@mail.com", "salah-password")))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.detail").value("Email or password is incorrect"));
+
+		mockMvc.perform(post("/api/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(loginJson("tidakada@mail.com", "rahasia123")))
+				.andExpect(status().isUnauthorized())
+				.andExpect(jsonPath("$.detail").value("Email or password is incorrect"));
+	}
+
+	@Test
+	void login_rejectsBlankFields() throws Exception {
+		mockMvc.perform(post("/api/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(loginJson(" ", "")))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors.email").exists())
+				.andExpect(jsonPath("$.errors.password").exists());
+	}
+
+	private void saveUser(String email, String rawPassword) {
+		userRepository.save(new User(email, passwordEncoder.encode(rawPassword), "Budi"));
+	}
+
+	private static String loginJson(String email, String password) {
+		return """
+				{"email": "%s", "password": "%s"}
+				""".formatted(email, password);
+	}
+
 	private static String json(String email, String password, String name) {
 		return """
 				{"email": "%s", "password": "%s", "name": "%s"}

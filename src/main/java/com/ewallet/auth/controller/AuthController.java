@@ -1,7 +1,9 @@
 package com.ewallet.auth.controller;
 
+import com.ewallet.auth.dto.LoginRequest;
 import com.ewallet.auth.dto.RegisterRequest;
 import com.ewallet.auth.dto.RegisterResponse;
+import com.ewallet.auth.dto.TokenResponse;
 import com.ewallet.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -24,5 +26,10 @@ public class AuthController {
 	@PostMapping("/register")
 	public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+	}
+
+	@PostMapping("/login")
+	public TokenResponse login(@Valid @RequestBody LoginRequest request) {
+		return authService.login(request);
 	}
 }
