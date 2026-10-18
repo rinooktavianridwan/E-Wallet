@@ -19,7 +19,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [x] Login (`POST /api/auth/login`, token JWT HS256) dan profil (`GET /api/users/me`)
 - [x] Cek saldo (`GET /api/wallets/me`)
 - [x] Top up (`POST /api/wallets/top-up`, wallet dikunci selama proses supaya aman dari top up bersamaan)
-- [ ] Transfer antar pengguna (atomik, aman dari race condition)
+- [x] Transfer antar pengguna (`POST /api/transfers`, atomik, dua wallet dikunci urut berdasarkan id supaya tidak deadlock)
 - [ ] Riwayat transaksi dengan paginasi
 - [ ] Idempotency key untuk mencegah transfer ganda
 - [ ] Dokumentasi API (OpenAPI/Swagger)
@@ -55,7 +55,7 @@ src/main/java/com/ewallet/
 ├── user/            controller, service, dto, repository
 ├── wallet/          controller, service, dto, repository (cek saldo)
 ├── transaction/     dto, repository, service (nomor referensi)
-└── transfer/        controller, service, dto (top up; transfer menyusul)
+└── transfer/        controller, service, dto (top up dan transfer)
 src/main/resources/
 ├── application.properties
 └── db/migration/    skrip Flyway

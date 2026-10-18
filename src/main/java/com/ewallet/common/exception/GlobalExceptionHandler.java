@@ -47,6 +47,27 @@ public class GlobalExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(RecipientNotFoundException.class)
+	public ProblemDetail handleRecipientNotFound(RecipientNotFoundException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+		problem.setTitle("Recipient not found");
+		return problem;
+	}
+
+	@ExceptionHandler(SelfTransferException.class)
+	public ProblemDetail handleSelfTransfer(SelfTransferException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+		problem.setTitle("Invalid transfer");
+		return problem;
+	}
+
+	@ExceptionHandler(InsufficientBalanceException.class)
+	public ProblemDetail handleInsufficientBalance(InsufficientBalanceException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+		problem.setTitle("Insufficient balance");
+		return problem;
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
 		Map<String, String> errors = new LinkedHashMap<>();
