@@ -22,8 +22,8 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [x] Transfer antar pengguna (`POST /api/transfers`, atomik, dua wallet dikunci urut berdasarkan id supaya tidak deadlock)
 - [x] Riwayat transaksi dengan paginasi (`GET /api/transactions?page=0&size=20`, terbaru lebih dulu)
 - [x] Idempotency key untuk mencegah transfer ganda (header `Idempotency-Key` di `POST /api/transfers`, request yang diulang mengembalikan hasil asli)
-- [ ] Dokumentasi API (OpenAPI/Swagger)
-- [ ] Test konkurensi dan integration test
+- [x] Dokumentasi API (Swagger UI di `/swagger-ui.html`, spesifikasi OpenAPI di `/v3/api-docs`)
+- [x] Test konkurensi dan integration test (top up paralel, transfer silang tanpa deadlock, idempotency paralel)
 - [ ] Refresh token di PostgreSQL (rotasi dan logout yang mencabut sesi)
 - [ ] Deploy beserta frontend
 
