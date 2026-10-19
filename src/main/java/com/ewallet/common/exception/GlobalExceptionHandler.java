@@ -1,89 +1,83 @@
 package com.ewallet.common.exception;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+// Extend ResponseEntityExceptionHandler supaya error bawaan Spring MVC (JSON rusak, method salah, path tidak ada)
+// ikut menjadi ProblemDetail, bukan jatuh ke handler 500 di bawah.
 @RestControllerAdvice
-public class GlobalExceptionHandler {
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+
+	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	@ExceptionHandler(EmailAlreadyUsedException.class)
 	public ProblemDetail handleEmailAlreadyUsed(EmailAlreadyUsedException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
-		problem.setTitle("Email already registered");
-		return problem;
+		return problem(HttpStatus.CONFLICT, "Email already registered", ex);
 	}
 
 	@ExceptionHandler(InvalidCredentialsException.class)
 	public ProblemDetail handleInvalidCredentials(InvalidCredentialsException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
-		problem.setTitle("Invalid credentials");
-		return problem;
+		return problem(HttpStatus.UNAUTHORIZED, "Invalid credentials", ex);
 	}
 
 	@ExceptionHandler(UserNotFoundException.class)
 	public ProblemDetail handleUserNotFound(UserNotFoundException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-		problem.setTitle("User not found");
-		return problem;
+		return problem(HttpStatus.NOT_FOUND, "User not found", ex);
 	}
 
 	@ExceptionHandler(WalletNotFoundException.class)
 	public ProblemDetail handleWalletNotFound(WalletNotFoundException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-		problem.setTitle("Wallet not found");
-		return problem;
+		return problem(HttpStatus.NOT_FOUND, "Wallet not found", ex);
 	}
 
 	@ExceptionHandler(WalletInactiveException.class)
 	public ProblemDetail handleWalletInactive(WalletInactiveException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
-		problem.setTitle("Wallet inactive");
-		return problem;
+		return problem(HttpStatus.FORBIDDEN, "Wallet inactive", ex);
 	}
 
 	@ExceptionHandler(RecipientNotFoundException.class)
 	public ProblemDetail handleRecipientNotFound(RecipientNotFoundException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-		problem.setTitle("Recipient not found");
-		return problem;
+		return problem(HttpStatus.NOT_FOUND, "Recipient not found", ex);
 	}
 
 	@ExceptionHandler(SelfTransferException.class)
 	public ProblemDetail handleSelfTransfer(SelfTransferException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-		problem.setTitle("Invalid transfer");
-		return problem;
+		return problem(HttpStatus.BAD_REQUEST, "Invalid transfer", ex);
 	}
 
 	@ExceptionHandler(InsufficientBalanceException.class)
 	public ProblemDetail handleInsufficientBalance(InsufficientBalanceException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
-		problem.setTitle("Insufficient balance");
-		return problem;
+		return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Insufficient balance", ex);
 	}
 
 	@ExceptionHandler(InvalidIdempotencyKeyException.class)
 	public ProblemDetail handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
-		problem.setTitle("Invalid idempotency key");
-		return problem;
+		return problem(HttpStatus.BAD_REQUEST, "Invalid idempotency key", ex);
 	}
 
 	@ExceptionHandler(IdempotencyKeyReuseException.class)
 	public ProblemDetail handleIdempotencyKeyReuse(IdempotencyKeyReuseException ex) {
-		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
-		problem.setTitle("Idempotency key reused");
-		return problem;
+		return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Idempotency key reused", ex);
 	}
 
-	@ExceptionHandler(MethodArgumentNotValidException.class)
-	public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
+	@Override
+	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+																  HttpHeaders headers,
+																  HttpStatusCode status,
+																  WebRequest request) {
 		Map<String, String> errors = new LinkedHashMap<>();
 		ex.getBindingResult().getFieldErrors()
 				.forEach(error -> errors.putIfAbsent(error.getField(), error.getDefaultMessage()));
@@ -91,6 +85,22 @@ public class GlobalExceptionHandler {
 		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed");
 		problem.setTitle("Invalid request");
 		problem.setProperty("errors", errors);
+		return ResponseEntity.badRequest().body(problem);
+	}
+
+	// Jaring pengaman: detail error tidak dikirim ke klien, hanya dicatat di log
+	@ExceptionHandler(Exception.class)
+	public ProblemDetail handleUnexpected(Exception ex) {
+		log.error("Unhandled exception", ex);
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+				HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong on our side");
+		problem.setTitle("Internal server error");
+		return problem;
+	}
+
+	private static ProblemDetail problem(HttpStatus status, String title, Exception ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, ex.getMessage());
+		problem.setTitle(title);
 		return problem;
 	}
 }

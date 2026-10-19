@@ -24,6 +24,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [x] Idempotency key untuk mencegah transfer ganda (header `Idempotency-Key` di `POST /api/transfers`, request yang diulang mengembalikan hasil asli)
 - [x] Dokumentasi API (Swagger UI di `/swagger-ui.html`, spesifikasi OpenAPI di `/v3/api-docs`)
 - [x] Test konkurensi dan integration test (top up paralel, transfer silang tanpa deadlock, idempotency paralel)
+- [x] CORS (dari `CORS_ALLOWED_ORIGINS`) dan error handling seragam (format ProblemDetail, error 500 tidak membocorkan detail)
 - [ ] Refresh token di PostgreSQL (rotasi dan logout yang mencabut sesi)
 - [ ] Deploy beserta frontend
 
@@ -112,6 +113,6 @@ User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST
 | `SERVER_PORT` | Port aplikasi | `8080` |
 | `JWT_SECRET` | Kunci penandatangan token, wajib diisi, minimal 32 karakter | string acak panjang |
 | `JWT_EXPIRATION_MINUTES` | Masa berlaku token dalam menit | `60` |
-| `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan (dipakai nanti) | `http://localhost:5173` |
+| `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan, dipisah koma | `http://localhost:5173` |
 
 File `.env` tidak boleh di-commit. Untuk deployment, set variabel yang sama langsung di environment platform hosting.
