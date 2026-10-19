@@ -1,13 +1,20 @@
+# Database untuk development. Aplikasi dijalankan di luar Docker (./mvnw spring-boot:run).
+#
+#   docker compose --env-file backend/.env up -d
+#
+# Tanpa --env-file, nilai bawaan di bawah (ewallet/ewallet, port 5432) dipakai.
+# Nilai DB_NAME, DB_USERNAME, DB_PASSWORD, dan DB_PORT berasal dari backend/.env.
+# Catatan: user dan password hanya berlaku saat volume dibuat pertama kali.
 services:
   db:
     image: postgres:16
     container_name: ewallet-db
     environment:
-      POSTGRES_DB: ewallet
-      POSTGRES_USER: ewallet
-      POSTGRES_PASSWORD: ewallet
+      POSTGRES_DB: ${DB_NAME:-ewallet}
+      POSTGRES_USER: ${DB_USERNAME:-ewallet}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ewallet}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - ewallet-data:/var/lib/postgresql/data
 

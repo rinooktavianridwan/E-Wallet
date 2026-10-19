@@ -1,0 +1,118 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/fraunces';
+@import 'tailwindcss';
+
+/*
+  Konsep: buku tabungan.
+  - Sampul biru-hijau tua dengan guratan halus seperti kertas uang, tempat saldo ditampilkan.
+  - Halaman catatan berwarna putih kebiruan dengan garis baris pucat dan garis margin merah di kolom tanggal.
+  - Kuning kunyit hanya untuk cap dan tombol utama di atas sampul.
+  Satu hal yang diingat: halaman Beranda yang terbaca seperti buku tabungan sungguhan.
+*/
+@theme {
+  --color-paper: #e7edef;
+  --color-sheet: #fafcfb;
+  --color-ink: #10242a;
+  --color-ink-soft: #4e656b;
+  --color-rule: #c9d8dc;
+  --color-credit: #12775a;
+  --color-debit: #b23a25;
+  --color-stamp: #e0a122;
+  --color-cover: #0e3a43;
+  --color-cover-soft: #17505b;
+  --color-cover-ink: #eef4f1;
+
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces Variable', ui-serif, Georgia, serif;
+}
+
+@layer base {
+  html {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--color-paper);
+  }
+
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-stamp);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .amount {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+    white-space: nowrap;
+  }
+
+  /* Halaman buku: kertas terang dengan bayangan keras, seperti tumpukan halaman */
+  .page {
+    background: var(--color-sheet);
+    border: 1px solid var(--color-rule);
+    box-shadow: 4px 4px 0 var(--color-rule);
+  }
+
+  /* Sampul buku tabungan: guratan lingkaran halus seperti pola kertas uang */
+  .cover {
+    background-color: var(--color-cover);
+    background-image:
+      repeating-radial-gradient(circle at 105% -10%, transparent 0 15px, rgb(255 255 255 / 0.055) 15px 16px),
+      repeating-radial-gradient(circle at -5% 120%, transparent 0 22px, rgb(255 255 255 / 0.04) 22px 23px);
+    color: var(--color-cover-ink);
+  }
+
+  /* Garis margin merah ganda di sisi kanan kolom tanggal */
+  .margin-line {
+    border-right: 3px double rgb(178 58 37 / 0.5);
+  }
+
+  .ledger-row {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .stamp {
+    display: inline-block;
+    transform: rotate(-6deg);
+    border: 2px solid currentColor;
+    border-radius: 3px;
+    padding: 0.15rem 0.7rem;
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    animation: stamp-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+}
+
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+    transform: rotate(-6deg) scale(1.7);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-6deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,14 +1,17 @@
 package com.ewallet.auth;
 
 import com.ewallet.IntegrationTestBase;
+import com.ewallet.auth.service.RefreshCookieFactory;
 import com.ewallet.auth.service.RefreshTokenService;
 import com.ewallet.common.exception.InvalidRefreshTokenException;
 import com.ewallet.entity.User;
 import com.jayway.jsonpath.JsonPath;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.util.ArrayList;
@@ -29,98 +32,111 @@ class RefreshTokenIntegrationTest extends IntegrationTestBase {
 	@Autowired
 	private RefreshTokenService refreshTokenService;
 
-	private String json(String key, String value) {
-		return "{\"" + key + "\": \"" + value + "\"}";
-	}
-
-	private String loginAndGet(String field) throws Exception {
-		String body = mockMvc.perform(post("/api/auth/login")
+	private MvcResult login() throws Exception {
+		return mockMvc.perform(post("/api/auth/login")
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"email\": \"budi@mail.com\", \"password\": \"rahasia123\"}"))
 				.andExpect(status().isOk())
-				.andReturn().getResponse().getContentAsString();
-		return JsonPath.read(body, "$." + field);
+				.andReturn();
+	}
+
+	private static String setCookieHeader(MvcResult result) {
+		return result.getResponse().getHeader(HttpHeaders.SET_COOKIE);
+	}
+
+	private static String cookieValue(MvcResult result) {
+		String header = setCookieHeader(result);
+		assertThat(header).startsWith(RefreshCookieFactory.NAME + "=");
+		return header.substring(header.indexOf('=') + 1, header.indexOf(';'));
+	}
+
+	private String loginAndGetRefreshToken() throws Exception {
+		return cookieValue(login());
 	}
 
 	private ResultActions refresh(String refreshToken) throws Exception {
 		return mockMvc.perform(post("/api/auth/refresh")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(json("refreshToken", refreshToken)));
+				.cookie(new Cookie(RefreshCookieFactory.NAME, refreshToken)));
 	}
 
 	private ResultActions logout(String refreshToken) throws Exception {
 		return mockMvc.perform(post("/api/auth/logout")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(json("refreshToken", refreshToken)));
+				.cookie(new Cookie(RefreshCookieFactory.NAME, refreshToken)));
 	}
 
 	@Test
-	void login_returnsRefreshToken() throws Exception {
+	void login_setsHttpOnlyRefreshCookieAndKeepsItOutOfTheBody() throws Exception {
 		createUser("budi@mail.com");
 
-		String refreshToken = loginAndGet("refreshToken");
+		MvcResult result = login();
 
-		assertThat(refreshToken).isNotBlank();
+		String header = setCookieHeader(result);
+		assertThat(header).contains("HttpOnly", "SameSite=Strict", "Path=/api/auth");
+		assertThat(cookieValue(result)).isNotBlank();
+
+		String body = result.getResponse().getContentAsString();
+		assertThat((Object) JsonPath.read(body, "$.accessToken")).isNotNull();
+		assertThat(body).doesNotContain("refreshToken");
 	}
 
 	@Test
-	void refresh_returnsNewTokensAndNewAccessTokenWorks() throws Exception {
+	void refresh_returnsNewAccessTokenAndRotatesCookie() throws Exception {
 		createUser("budi@mail.com");
-		String oldRefresh = loginAndGet("refreshToken");
+		String oldRefresh = loginAndGetRefreshToken();
 
-		String body = refresh(oldRefresh)
+		MvcResult result = refresh(oldRefresh)
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$.refreshToken").isNotEmpty())
-				.andReturn().getResponse().getContentAsString();
+				.andExpect(jsonPath("$.accessToken").isNotEmpty())
+				.andReturn();
 
-		String newRefresh = JsonPath.read(body, "$.refreshToken");
-		String newAccess = JsonPath.read(body, "$.accessToken");
-		assertThat(newRefresh).isNotEqualTo(oldRefresh);
+		assertThat(cookieValue(result)).isNotEqualTo(oldRefresh);
 
+		String newAccess = JsonPath.read(result.getResponse().getContentAsString(), "$.accessToken");
 		mockMvc.perform(get("/api/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + newAccess))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.email").value("budi@mail.com"));
 	}
 
 	@Test
-	void refresh_rejectsUnknownAndBlankTokens() throws Exception {
+	void refresh_rejectsMissingAndUnknownCookies() throws Exception {
+		mockMvc.perform(post("/api/auth/refresh")).andExpect(status().isUnauthorized());
 		refresh("token-ngawur").andExpect(status().isUnauthorized());
-		refresh("").andExpect(status().isBadRequest());
 	}
 
 	@Test
 	void refresh_reusingRotatedTokenRevokesTheWholeChain() throws Exception {
 		createUser("budi@mail.com");
-		String first = loginAndGet("refreshToken");
+		String first = loginAndGetRefreshToken();
 
-		String body = refresh(first).andExpect(status().isOk())
-				.andReturn().getResponse().getContentAsString();
-		String second = JsonPath.read(body, "$.refreshToken");
+		MvcResult rotated = refresh(first).andExpect(status().isOk()).andReturn();
+		String second = cookieValue(rotated);
 
 		refresh(first).andExpect(status().isUnauthorized());
 		refresh(second).andExpect(status().isUnauthorized());
 	}
 
 	@Test
-	void logout_revokesRefreshToken() throws Exception {
+	void logout_revokesRefreshTokenAndClearsCookie() throws Exception {
 		createUser("budi@mail.com");
-		String refreshToken = loginAndGet("refreshToken");
+		String refreshToken = loginAndGetRefreshToken();
 
-		logout(refreshToken).andExpect(status().isNoContent());
+		MvcResult result = logout(refreshToken).andExpect(status().isNoContent()).andReturn();
 
+		assertThat(setCookieHeader(result)).contains("Max-Age=0");
 		refresh(refreshToken).andExpect(status().isUnauthorized());
 	}
 
 	@Test
-	void logout_withUnknownTokenStillSucceeds() throws Exception {
+	void logout_withoutCookieStillSucceeds() throws Exception {
+		mockMvc.perform(post("/api/auth/logout")).andExpect(status().isNoContent());
 		logout("token-ngawur").andExpect(status().isNoContent());
 	}
 
 	@Test
 	void logout_onlyAffectsTheSessionItBelongsTo() throws Exception {
 		createUser("budi@mail.com");
-		String laptop = loginAndGet("refreshToken");
-		String phone = loginAndGet("refreshToken");
+		String laptop = loginAndGetRefreshToken();
+		String phone = loginAndGetRefreshToken();
 
 		logout(laptop).andExpect(status().isNoContent());
 

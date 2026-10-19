@@ -48,6 +48,7 @@ public class SecurityConfig {
 			@Value("${app.cors.allowed-origins}") List<String> allowedOrigins) {
 		CorsConfiguration config = new CorsConfiguration();
 		config.setAllowedOrigins(allowedOrigins);
+		config.setAllowCredentials(true);
 		config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
 		config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
 		config.setExposedHeaders(List.of("Idempotent-Replayed"));

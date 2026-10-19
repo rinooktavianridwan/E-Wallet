@@ -1,166 +1,350 @@
 # E-Wallet
 
-Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek portofolio yang berfokus pada konsistensi data keuangan: transfer atomik, pencatatan transaksi gaya double-entry, dan penanganan akses bersamaan (concurrency).
+Simulasi dompet digital (e-wallet) yang dibuat sebagai proyek portofolio backend. Fokusnya bukan sekadar CRUD, tetapi **konsistensi data keuangan**: transfer atomik, pencatatan transaksi gaya double-entry, penanganan akses bersamaan (concurrency), idempotency key untuk mencegah transfer ganda, dan sesi login dengan **refresh token yang berotasi**. Di atasnya ada klien React bertema buku tabungan.
 
-> **Status:** backend selesai dan teruji. Frontend web menyusul (folder `frontend/`). Daftar fitur ada di bagian [Rencana Fitur](#rencana-fitur).
+## Fitur
+
+- Registrasi dan login. Password di-hash dengan BCrypt, dompet dibuat otomatis saat registrasi
+- **Sesi aman**: access token JWT (HS256) hanya hidup di memori browser, refresh token opaque disimpan sebagai hash di PostgreSQL dan dikirim lewat cookie `HttpOnly` + `SameSite=Strict`
+- **Rotasi refresh token** dengan deteksi pemakaian ulang: token lama yang dipakai lagi mencabut seluruh sesinya
+- Cek saldo, top up, dan transfer antar pengguna
+- **Transfer atomik** dengan locking pesimistis (dua dompet dikunci urut berdasarkan id supaya tidak deadlock)
+- **Idempotency key**: transfer yang diulang (misalnya koneksi putus) mengembalikan hasil aslinya, tidak mengirim dua kali
+- Riwayat transaksi dengan paginasi, lengkap dengan saldo berjalan per baris
+- Dokumentasi API otomatis (Swagger UI) dan error seragam dalam format ProblemDetail
 
 ## Teknologi
 
-- Java 21
-- Spring Boot 4.1.1 (Web MVC, Data JPA, Validation, Security, Actuator)
-- PostgreSQL 16
-- Flyway (migrasi database)
-- Maven (Maven Wrapper)
-- Docker Compose (database untuk development)
+| Lapisan         | Teknologi                                                                             |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Backend         | Java 21, Spring Boot 4.1.1 (Web MVC, Data JPA, Validation, Security, Actuator), Maven |
+| Database        | PostgreSQL 16, Flyway (migrasi)                                                       |
+| Auth            | Spring Security (resource server JWT HS256), refresh token buatan sendiri             |
+| Dokumentasi API | springdoc-openapi (Swagger UI)                                                        |
+| Frontend        | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind CSS 4              |
+| Test            | JUnit 6, Mockito, MockMvc (integration test dengan PostgreSQL asli), Vitest           |
+| Infrastruktur   | Docker (multi-stage, user non-root), Docker Compose                                   |
 
-## Rencana Fitur
+## Arsitektur
 
-- [x] Registrasi (`POST /api/auth/register`, password di-hash dengan BCrypt, wallet dibuat otomatis)
-- [x] Login (`POST /api/auth/login`, token JWT HS256) dan profil (`GET /api/users/me`)
-- [x] Cek saldo (`GET /api/wallets/me`)
-- [x] Top up (`POST /api/wallets/top-up`, wallet dikunci selama proses supaya aman dari top up bersamaan)
-- [x] Transfer antar pengguna (`POST /api/transfers`, atomik, dua wallet dikunci urut berdasarkan id supaya tidak deadlock)
-- [x] Riwayat transaksi dengan paginasi (`GET /api/transactions?page=0&size=20`, terbaru lebih dulu)
-- [x] Idempotency key untuk mencegah transfer ganda (header `Idempotency-Key` di `POST /api/transfers`, request yang diulang mengembalikan hasil asli)
-- [x] Dokumentasi API (Swagger UI di `/swagger-ui.html`, spesifikasi OpenAPI di `/v3/api-docs`)
-- [x] Test konkurensi dan integration test (top up paralel, transfer silang tanpa deadlock, idempotency paralel)
-- [x] CORS (dari `CORS_ALLOWED_ORIGINS`) dan error handling seragam (format ProblemDetail, error 500 tidak membocorkan detail)
-- [x] Refresh token di PostgreSQL (`POST /api/auth/refresh` dengan rotasi, `POST /api/auth/logout` yang mencabut sesi; token yang dipakai ulang mencabut seluruh rantainya)
-- [ ] Deploy beserta frontend
+Aplikasi berlapis sederhana: controller tipis, service memegang logika bisnis dan transaksi, repository Spring Data JPA. Frontend dan API disajikan dari **satu origin** (lewat reverse proxy di produksi, lewat proxy Vite saat development), sehingga cookie `SameSite=Strict` ikut terkirim dan CORS tidak terlibat.
 
-## Desain Database
+```mermaid
+flowchart LR
+    B[Browser: React SPA] -- "/api, access token di header" --> P[Reverse proxy]
+    P -- "/ (file statis)" --> S[(dist/)]
+    P -- "/api/*" --> A
+    subgraph Backend["Spring Boot API"]
+        A[Controller] --> SV[Service + transaksi]
+        SV --> R[Repository JPA]
+    end
+    R --> DB[(PostgreSQL)]
+    F[Flyway] -- migrasi saat start --> DB
+```
 
-Tiga tabel utama (ditambah `idempotency_records` untuk idempotency key dan `refresh_tokens` untuk sesi login):
+### Alur transfer
 
-| Tabel | Fungsi |
-|---|---|
-| `users` | Data autentikasi dan profil dasar |
-| `wallets` | Satu dompet per pengguna: saldo, status aktif, versi (optimistic locking) |
-| `transactions` | Log keuangan. Satu transfer menghasilkan dua baris (`DEBIT` untuk pengirim, `CREDIT` untuk penerima) dengan `reference_number` yang sama |
+Satu transfer menghasilkan **dua baris** di tabel `transactions` yang memakai `reference_number` yang sama: `DEBIT` untuk pengirim dan `CREDIT` untuk penerima. Kuncinya dicatat paling awal, sebelum uang bergerak, sehingga dua request dengan key yang sama tidak bisa sama-sama lolos.
 
-Beberapa keputusan desain:
+```mermaid
+sequenceDiagram
+    participant C as Klien
+    participant API as TransferController
+    participant I as IdempotentTransferService
+    participant T as TransferService
+    participant DB as PostgreSQL
 
-- Uang disimpan sebagai `NUMERIC(19,2)` dan dihitung dengan `BigDecimal`, bukan `double`.
+    C->>API: POST /api/transfers (Idempotency-Key, penerima, nominal)
+    API->>I: transfer(userId, key, request)
+    I->>DB: key sudah ada?
+    alt key sudah dipakai, isi request sama
+        I-->>C: 200 + Idempotent-Replayed, hasil asli
+    else key baru
+        I->>DB: simpan key (unique user_id + key)
+        I->>T: transfer(userId, request)
+        T->>DB: kunci dua dompet (urut id), cek saldo
+        T->>DB: kurangi pengirim, tambah penerima
+        T->>DB: tulis baris DEBIT dan CREDIT
+        I-->>C: 201 Created
+    end
+```
+
+### Alur sesi dan refresh token
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant API as Backend
+    participant DB as refresh_tokens
+
+    B->>API: POST /api/auth/login
+    API->>DB: simpan hash token baru (family F)
+    API-->>B: access token (body) + cookie refresh_token (HttpOnly)
+    Note over B: access token hanya di memori
+    B->>API: GET /api/wallets/me (token kedaluwarsa)
+    API-->>B: 401
+    B->>API: POST /api/auth/refresh (cookie ikut otomatis)
+    API->>DB: kunci baris, cabut token lama, buat token baru (family F)
+    API-->>B: access token baru + cookie baru
+    B->>API: ulangi GET /api/wallets/me
+    Note over API,DB: token lama dipakai lagi: seluruh family F dicabut
+```
+
+## Model Data
+
+```mermaid
+erDiagram
+    users ||--|| wallets : memiliki
+    wallets ||--o{ transactions : mencatat
+    users ||--o{ idempotency_records : membuat
+    transactions |o--o{ idempotency_records : "hasil transfer"
+    users ||--o{ refresh_tokens : "sesi login"
+
+    users {
+        bigint id PK
+        string email UK
+        string password
+        string name
+        timestamptz created_at
+    }
+    wallets {
+        bigint id PK
+        bigint user_id FK, UK
+        numeric balance "NUMERIC(19,2), CHECK >= 0"
+        boolean is_active
+        bigint version
+        timestamptz updated_at
+    }
+    transactions {
+        uuid id PK
+        bigint wallet_id FK
+        string transaction_type "CREDIT, DEBIT"
+        string category "TOP_UP, TRANSFER, WITHDRAW"
+        numeric amount "CHECK > 0"
+        numeric balance_after
+        string reference_number "UNIQUE dengan wallet_id"
+        string description
+        timestamptz created_at
+    }
+    idempotency_records {
+        bigint id PK
+        bigint user_id FK
+        string idempotency_key "UNIQUE dengan user_id"
+        string request_hash
+        uuid transaction_id FK
+        timestamptz created_at
+    }
+    refresh_tokens {
+        bigint id PK
+        bigint user_id FK
+        string token_hash UK "SHA-256"
+        uuid family_id
+        timestamptz expires_at
+        timestamptz revoked_at
+        timestamptz created_at
+    }
+```
+
+Keputusan desain:
+
+- Uang disimpan sebagai `NUMERIC(19,2)` dan dihitung dengan `BigDecimal`, tidak pernah `double`.
 - Database ikut menjaga integritas lewat constraint: `balance >= 0`, `amount > 0`, `UNIQUE(reference_number, wallet_id)`.
-- `transactions.balance_after` menyimpan saldo setelah mutasi untuk keperluan audit.
+- `transactions.balance_after` menyimpan saldo setelah mutasi. Dari sinilah kolom saldo berjalan di riwayat berasal, tanpa menghitung ulang.
 - Skema dikelola Flyway (`src/main/resources/db/migration`); Hibernate hanya memvalidasi (`ddl-auto=validate`).
+- `refresh_tokens` hanya menyimpan hash SHA-256, jadi kebocoran database tidak membocorkan token yang bisa dipakai.
 
-## Struktur Proyek
+## Autentikasi
 
-Monorepo:
+Dua token dengan peran berbeda:
 
-```
-e-wallet/
-├── backend/                Spring Boot API (Maven, Dockerfile, .env)
-├── frontend/               Aplikasi web (menyusul)
-├── docker-compose.yml      PostgreSQL untuk development
-└── docker-compose.prod.yml Aplikasi + PostgreSQL untuk server
-```
+|               | Access token                                       | Refresh token                                                                        |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Bentuk        | JWT HS256, berisi id pengguna                      | String acak (opaque)                                                                 |
+| Disimpan di   | Memori JavaScript                                  | Cookie `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Secure` di produksi |
+| Umur          | `JWT_EXPIRATION_MINUTES` (60 menit)              | `JWT_REFRESH_EXPIRATION_DAYS` (7 hari)                                             |
+| Dipakai untuk | Header `Authorization: Bearer` di setiap request | Hanya ke `/api/auth/refresh` dan `/api/auth/logout`                              |
 
-Isi `backend/`:
+- JavaScript tidak pernah melihat refresh token, jadi XSS tidak bisa mencurinya. Access token yang hilang saat halaman dimuat ulang dipulihkan diam-diam lewat cookie.
+- Setiap refresh **berotasi**: token lama dicabut, token baru diterbitkan dalam family yang sama. Memakai token yang sudah dirotasi dianggap pencurian dan mencabut seluruh family.
+- Baris refresh token dikunci saat dibaca (`FOR UPDATE`), jadi dua refresh bersamaan dengan token yang sama hanya satu yang berhasil.
+- Di frontend, refresh bersamaan dalam satu tab berbagi satu request (single-flight), dan antar tab diserialkan lewat Web Locks, supaya rotasi tidak salah dikira pencurian.
+- Logout mencabut seluruh family sesi itu dan menghapus cookie. Logout tanpa cookie tetap sukses (204).
 
-```
-src/main/java/com/ewallet/
-├── EwalletApplication.java
-├── entity/          Entity JPA: User, Wallet, Transaction, enum
-├── auth/            controller, service, dto, repository (register, login, JWT, refresh token)
-├── common/          config (security) dan exception (error handler)
-├── user/            controller, service, dto, repository
-├── wallet/          controller, service, dto, repository (cek saldo)
-├── transaction/     controller, dto, repository, service (riwayat, nomor referensi)
-└── transfer/        controller, service, dto, repository (top up, transfer, idempotency)
-src/main/resources/
-├── application.properties
-└── db/migration/    skrip Flyway
-```
+## Aturan Bisnis
 
-Pengelompokan per fitur; controller, service, dan dto ditambahkan seiring fitur dibuat.
+- Nominal antara 0,01 dan 100.000.000,00 dengan maksimal 2 angka desimal.
+- Pengguna tidak bisa transfer ke dirinya sendiri, ke email yang tidak terdaftar, atau melebihi saldo.
+- Dompet yang tidak aktif tidak bisa dipakai bertransaksi.
+- `Idempotency-Key` bersifat opsional, maksimal 100 karakter, berlaku per pengguna. Key yang sama dengan isi request berbeda ditolak (422). Request yang diulang dengan isi sama mengembalikan hasil asli dengan header `Idempotent-Replayed: true`.
+- Dompet selalu diambil dari id di token, bukan dari input klien, jadi pengguna hanya bisa menyentuh dompetnya sendiri.
+
+## Mengakses API
+
+- Base URL: `http://localhost:8080`. Dokumentasi interaktif: `/swagger-ui.html`, spesifikasi OpenAPI: `/v3/api-docs`.
+- Endpoint selain register, login, refresh, dan logout wajib memakai header `Authorization: Bearer <access token>`.
+- Sukses mengembalikan objek langsung. Daftar berpaginasi: `{ content, page, size, totalElements, totalPages }`.
+- Error memakai ProblemDetail: `{ "title", "status", "detail" }`. Error validasi menambahkan `errors` berisi pesan per kolom. Error 500 tidak membocorkan detail internal.
+- Nominal uang dikirim sebagai angka JSON.
+
+| Area        | Endpoint                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Auth        | `POST /api/auth/register` (201), `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout` (204) |
+| Profil      | `GET /api/users/me`                                                                                                    |
+| Dompet      | `GET /api/wallets/me`, `POST /api/wallets/top-up` (201)                                                              |
+| Transfer    | `POST /api/transfers` (201, atau 200 bila diulang dengan `Idempotency-Key` yang sama)                                |
+| Riwayat     | `GET /api/transactions?page=0&size=20` (terbaru lebih dulu)                                                            |
+| Operasional | `GET /actuator/health`                                                                                                 |
+
+Kode error yang umum: `400` validasi atau transfer ke diri sendiri, `401` kredensial atau token salah, `403` dompet tidak aktif, `404` penerima tidak ditemukan, `409` email sudah terdaftar, `422` saldo kurang atau idempotency key dipakai ulang dengan isi berbeda.
 
 ## Menjalankan Secara Lokal
 
-Prasyarat: JDK 21 dan Docker (atau PostgreSQL yang sudah terpasang).
-
-1. Salin konfigurasi environment:
-   ```bash
-   cd backend
-   cp .env.example .env
-   ```
-   Di PowerShell: `Copy-Item .env.example .env`. Sesuaikan nilainya jika perlu.
-2. Jalankan database (dari root repo):
-   ```bash
-   docker compose up -d
-   ```
-3. Jalankan aplikasi (dari folder `backend/`):
-   ```bash
-   ./mvnw spring-boot:run
-   ```
-   Di Windows: `mvnw.cmd spring-boot:run`.
-
-Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied N migrations`). Dokumentasi API ada di `http://localhost:8080/swagger-ui.html`. Endpoint register, login, dan `/actuator/health` terbuka; endpoint lain wajib memakai header `Authorization: Bearer <token>`.
-
-> Jika memakai Docker Compose, nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
-
-## Menjalankan Test
-
-Test memakai database terpisah bernama `ewallet_test` (supaya data development aman). Buat sekali:
+Prasyarat: JDK 21, Docker, Node.js 20+ dan [pnpm](https://pnpm.io).
 
 ```bash
-psql -U <user> -c "CREATE DATABASE ewallet_test;"
+# 1. Konfigurasi (semua pengaturan ada di satu file)
+cd backend
+cp .env.example .env            # PowerShell: Copy-Item .env.example .env
+cd ..
+
+# 2. Database (dari root repo)
+docker compose --env-file backend/.env up -d
+
+# 3. Backend, di terminal pertama (dari folder backend/)
+cd backend
+./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run
+
+# 4. Frontend, di terminal kedua (dari folder frontend/)
+cd frontend
+pnpm install
+pnpm dev                        # http://localhost:5173
 ```
 
-Lalu jalankan dari folder `backend/`:
+Saat start, Flyway membuat tabel otomatis. Di development, Vite meneruskan `/api` ke backend, jadi browser melihat satu origin dan cookie refresh token ikut terkirim. Port dan alamat backend untuk proxy bisa diubah lewat `frontend/.env` (lihat `frontend/.env.example`).
 
-```bash
-./mvnw test
-```
+## Konfigurasi
 
-User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST_DB_URL`.
+Semua yang berbeda antara development dan server ada di `backend/.env`. Kode dan file compose tidak perlu diubah saat deploy.
 
-## Deploy
+| Variabel                        | Fungsi                                                                       | Bawaan                                          |
+| ------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- |
+| `DB_NAME`                     | Nama database                                                                | `ewallet`                                     |
+| `DB_USERNAME`                 | User database                                                                | `ewallet`                                     |
+| `DB_PASSWORD`                 | Password database. **Ganti di produksi**                               | `ewallet`                                     |
+| `DB_PORT`                     | Port database di komputer development (`docker-compose.yml`)               | `5432`                                        |
+| `DB_URL`                      | JDBC URL, hanya untuk development. Di server diatur otomatis oleh compose    | `jdbc:postgresql://localhost:5432/ewallet`    |
+| `SERVER_PORT`                 | Port aplikasi di dalam container (`PORT` dari platform hosting diutamakan) | `8080`                                        |
+| `APP_BIND`                    | Alamat di server tempat API dibuka. Biarkan `127.0.0.1`                    | `127.0.0.1`                                   |
+| `APP_PORT`                    | Port di server tempat API dibuka                                             | `8080`                                        |
+| `JWT_SECRET`                  | Kunci penandatangan token, minimal 32 karakter. **Ganti di produksi**  |                                                 |
+| `JWT_EXPIRATION_MINUTES`      | Umur access token (menit)                                                    | `60`                                          |
+| `JWT_REFRESH_EXPIRATION_DAYS` | Umur refresh token (hari)                                                    | `7`                                           |
+| `COOKIE_SECURE`               | Cookie refresh hanya lewat HTTPS. **Isi `true` di produksi**         | `false`                                       |
+| `CORS_ALLOWED_ORIGINS`        | Alamat frontend yang diizinkan, dipisah koma. **Isi domain produksi**  | `http://localhost:3000,http://localhost:5173` |
+| `SWAGGER_ENABLED`             | Buka atau tutup Swagger UI dan `/v3/api-docs`                              | `true`                                        |
 
-Proyek menyertakan `Dockerfile` (multi-stage: build dengan JDK, jalan dengan JRE sebagai user non-root). Platform hosting yang mendukung Docker bisa membangunnya langsung dari repository.
+File `.env` tidak boleh di-commit (sudah ada di `.gitignore`). `JWT_SECRET` tidak punya nilai bawaan di aplikasi, jadi aplikasi menolak start tanpa itu.
 
-Uji secara lokal:
+## Deploy di VPS
 
-```bash
-docker build -t ewallet ./backend
-docker run --env-file backend/.env -p 127.0.0.1:8080:8080 ewallet
-```
+`docker-compose.prod.yml` menjalankan API dan PostgreSQL bersama. Database tidak membuka port sama sekali, dan API hanya terbuka di `127.0.0.1` (diatur `APP_BIND` dan `APP_PORT`). Akses dari internet lewat reverse proxy dengan HTTPS.
 
-`127.0.0.1:` di depan port membuat container hanya bisa diakses dari komputer itu sendiri, tidak dari jaringan luar.
-
-### Deploy di VPS
-
-`docker-compose.prod.yml` menjalankan aplikasi dan PostgreSQL bersama. Database tidak membuka port sama sekali (hanya dapat dijangkau aplikasi lewat jaringan internal Docker), dan aplikasi hanya terbuka di `127.0.0.1:8080`. Akses dari internet lewat reverse proxy (Nginx atau Caddy) dengan HTTPS.
-
-1. Salin proyek ke server, buat `backend/.env` dari `backend/.env.example`. Isi `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, dan `CORS_ALLOWED_ORIGINS` dengan nilai produksi. `DB_URL` diatur otomatis oleh compose.
-2. Jalankan:
+1. Salin proyek ke server, lalu buat `backend/.env` dari `.env.example`. Ubah: `DB_PASSWORD`, `JWT_SECRET`, `COOKIE_SECURE=true`, `CORS_ALLOWED_ORIGINS` (domain frontend), dan opsional `SWAGGER_ENABLED=false`.
+2. Jalankan backend:
    ```bash
    docker compose --env-file backend/.env -f docker-compose.prod.yml up -d --build
    ```
-3. Arahkan reverse proxy ke `http://127.0.0.1:8080`.
+3. Build frontend (di mesin mana pun yang punya pnpm), lalu salin `frontend/dist/` ke server:
+   ```bash
+   cd frontend && pnpm install && pnpm build
+   ```
+4. Atur reverse proxy agar frontend dan `/api` berada di **domain yang sama**. Contoh Nginx:
+   ```nginx
+   server {
+       listen 443 ssl;
+       server_name wallet.contohmu.com;
+       # ssl_certificate dan ssl_certificate_key: isi sesuai sertifikat kamu
 
-Catatan: `DB_USERNAME` dan `DB_PASSWORD` dipakai PostgreSQL saat volume pertama kali dibuat. Mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
+       root /var/www/ewallet;            # isi dari frontend/dist
+       index index.html;
+
+       location /api/ {
+           proxy_pass http://127.0.0.1:8080;   # samakan dengan APP_BIND:APP_PORT
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+
+       location / {
+           try_files $uri /index.html;        # agar refresh di halaman dalam tidak 404
+       }
+   }
+   ```
+
+   Karena hanya `/api/` yang diteruskan, Swagger UI dan `/actuator` tidak terbuka ke publik.
 
 Catatan:
 
-- Dari dalam container, `localhost` bukan komputer host. Untuk menguji dengan PostgreSQL di host, isi `DB_URL` dengan `host.docker.internal` sebagai pengganti `localhost`.
-- Port dibaca dari `PORT` (diisi otomatis oleh banyak platform), lalu `SERVER_PORT`, lalu 8080.
-- Untuk database terkelola (bukan compose di atas), biasanya membutuhkan SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
-- Set `JWT_SECRET` dan `CORS_ALLOWED_ORIGINS` (domain frontend) di environment platform. Jangan memasukkan `.env` ke image; `.dockerignore` sudah mengecualikannya.
-- Health check: `GET /actuator/health`.
+- `DB_USERNAME` dan `DB_PASSWORD` dipakai PostgreSQL saat volume pertama kali dibuat. Mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
+- Untuk database terkelola (bukan compose di atas), biasanya perlu SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
+- Health check: `GET /actuator/health` (dari server itu sendiri, di `127.0.0.1`).
+- Docker image backend bisa dibangun sendiri: `docker build -t ewallet ./backend`. `.env` tidak pernah masuk ke image (`.dockerignore`).
 
-## Variabel Environment
+## Testing
 
-| Variabel | Fungsi | Contoh |
-|---|---|---|
-| `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/ewallet` |
-| `DB_USERNAME` | User database | `ewallet` |
-| `DB_PASSWORD` | Password database | |
-| `SERVER_PORT` | Port aplikasi (`PORT` dari platform diutamakan) | `8080` |
-| `JWT_SECRET` | Kunci penandatangan token, wajib diisi, minimal 32 karakter | string acak panjang |
-| `JWT_EXPIRATION_MINUTES` | Masa berlaku access token dalam menit | `60` |
-| `JWT_REFRESH_EXPIRATION_DAYS` | Masa berlaku refresh token dalam hari | `7` |
-| `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan, dipisah koma | `http://localhost:5173` |
+```bash
+# Backend (dari folder backend/). Butuh database ewallet_test, buat sekali:
+#   psql -U <user> -c "CREATE DATABASE ewallet_test;"
+./mvnw test
 
-File `.env` tidak boleh di-commit. Untuk deployment, set variabel yang sama langsung di environment platform hosting.
+# Frontend (dari folder frontend/)
+pnpm test
+```
+
+- **Backend**: unit test dengan Mockito untuk logika service, dan integration test dengan MockMvc terhadap PostgreSQL asli untuk setiap endpoint, validasi, format error, CORS, dan Swagger. Ada test konkurensi: top up paralel, transfer silang tanpa deadlock, request idempotent paralel, dan refresh token paralel (hanya satu yang berhasil). URL database test bisa diubah lewat `TEST_DB_URL`.
+- **Frontend**: Vitest mencakup klien API (auto-refresh saat 401, single-flight, sesi habis, header `Idempotency-Key`, pesan error per kolom) serta pembacaan dan format nominal.
+
+## Catatan Teknis
+
+- **Locking pesimistis untuk uang**: saldo dibaca dan diubah dalam satu transaksi dengan `SELECT ... FOR UPDATE`. Untuk transfer, dua dompet dikunci dengan urutan id naik, sehingga transfer silang (A ke B dan B ke A bersamaan) tidak saling menunggu selamanya.
+- **Idempotency tanpa celah**: key disimpan paling awal dengan unique `(user_id, key)`. Pelanggaran unique ditangkap di luar transaksi yang gagal, lalu request kedua mengembalikan hasil request pertama.
+- **Satu sumber kebenaran untuk saldo berjalan**: `balance_after` dicatat saat transaksi dibuat, jadi riwayat tidak perlu menghitung ulang.
+- **Error seragam**: `GlobalExceptionHandler` meluaskan `ResponseEntityExceptionHandler`, sehingga JSON rusak, method salah, atau path tidak ada juga berbentuk ProblemDetail.
+- **Frontend**: klien HTTP membungkus `fetch`, menyisipkan Bearer token, dan mengulang request satu kali setelah refresh bila menerima 401. Transfer punya langkah "Periksa sebelum mengirim", dan Idempotency-Key dibuat per rencana transfer sehingga menekan kirim ulang setelah koneksi putus aman.
+
+## Keterbatasan
+
+- Belum ada pembatasan laju (rate limiting) pada login dan registrasi.
+- Refresh token yang kedaluwarsa atau dicabut belum dibersihkan otomatis dari tabel.
+- Access token tidak bisa dicabut sebelum kedaluwarsa (maksimal 60 menit); yang dicabut adalah refresh token.
+- `POST /api/auth/register` mengungkap apakah email sudah terdaftar (409), jadi perlindungan terhadap enumerasi email hanya sebagian.
+- Ini simulasi: tidak ada integrasi pembayaran sungguhan, dan top up langsung menambah saldo. Kategori `WITHDRAW` ada di skema tetapi belum punya endpoint.
+- Frontend belum punya Dockerfile; di server ia disajikan dari `dist/` oleh reverse proxy.
+
+## Struktur Proyek
+
+```
+e-wallet/
+├── backend/                  # API Spring Boot (Maven, Dockerfile, .env)
+├── frontend/                 # Aplikasi web (React, Vite, TypeScript, Tailwind)
+├── docker-compose.yml        # PostgreSQL untuk development
+└── docker-compose.prod.yml   # API + PostgreSQL untuk server
+```
+
+```
+backend/src/main/java/com/ewallet/
+├── auth/          # register, login, JWT, refresh token, cookie
+├── user/          # profil pengguna
+├── wallet/        # cek saldo
+├── transaction/   # riwayat, nomor referensi
+├── transfer/      # top up, transfer, idempotency
+├── entity/        # entity JPA dan enum
+└── common/        # konfigurasi (security, OpenAPI), exception, DTO bersama
+backend/src/main/resources/db/migration/   # skrip Flyway (V1 skema, V2 idempotency, V3 refresh token)
+
+frontend/src/
+├── lib/           # klien API, tipe, hook TanStack Query, format nominal
+├── auth/          # AuthContext dan pemulihan sesi
+├── components/    # layout, tabel catatan, komponen form
+└── pages/         # masuk, daftar, beranda, isi saldo, kirim uang, riwayat
+```
