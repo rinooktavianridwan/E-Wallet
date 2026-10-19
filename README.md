@@ -23,17 +23,18 @@ Simulasi dompet digital (e-wallet) yang dibuat sebagai proyek portofolio backend
 | Dokumentasi API | springdoc-openapi (Swagger UI)                                                        |
 | Frontend        | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind CSS 4              |
 | Test            | JUnit 6, Mockito, MockMvc (integration test dengan PostgreSQL asli), Vitest           |
-| Infrastruktur   | Docker (multi-stage, user non-root), Docker Compose                                   |
+| Infrastruktur   | Docker (multi-stage, user non-root), Docker Compose per bagian, nginx                 |
 
 ## Arsitektur
 
-Aplikasi berlapis sederhana: controller tipis, service memegang logika bisnis dan transaksi, repository Spring Data JPA. Frontend dan API disajikan dari **satu origin** (lewat reverse proxy di produksi, lewat proxy Vite saat development), sehingga cookie `SameSite=Strict` ikut terkirim dan CORS tidak terlibat.
+Aplikasi berlapis sederhana: controller tipis, service memegang logika bisnis dan transaksi, repository Spring Data JPA. Frontend dan API disajikan dari **satu origin** (lewat nginx di container frontend, atau proxy Vite saat development), sehingga cookie `SameSite=Strict` ikut terkirim dan CORS tidak terlibat.
 
 ```mermaid
 flowchart LR
-    B[Browser: React SPA] -- "/api, access token di header" --> P[Reverse proxy]
-    P -- "/ (file statis)" --> S[(dist/)]
-    P -- "/api/*" --> A
+    B[Browser: React SPA] -- HTTPS --> X[Reverse proxy di VPS]
+    X --> N[Container frontend: nginx]
+    N -- "/ (file statis)" --> S[(dist/)]
+    N -- "/api/*" --> A
     subgraph Backend["Spring Boot API"]
         A[Controller] --> SV[Service + transaksi]
         SV --> R[Repository JPA]
@@ -207,14 +208,14 @@ cd backend
 cp .env.example .env            # PowerShell: Copy-Item .env.example .env
 cd ..
 
-# 2. Database (dari root repo)
-docker compose --env-file backend/.env up -d
-
-# 3. Backend, di terminal pertama (dari folder backend/)
+# 2. Database, dari folder backend/ (docker-compose.dev.yml membuka port database ke localhost)
 cd backend
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+
+# 3. Backend, di terminal pertama (masih di folder backend/)
 ./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run
 
-# 4. Frontend, di terminal kedua (dari folder frontend/)
+# 4. Frontend, di terminal kedua (dari root repo)
 cd frontend
 pnpm install
 pnpm dev                        # http://localhost:5173
@@ -224,14 +225,16 @@ Saat start, Flyway membuat tabel otomatis. Di development, Vite meneruskan `/api
 
 ## Konfigurasi
 
-Semua yang berbeda antara development dan server ada di `backend/.env`. Kode dan file compose tidak perlu diubah saat deploy.
+Semua yang berbeda antara development dan server ada di file `.env`: `backend/.env` untuk API dan database, `frontend/.env` untuk frontend (opsional). Kode dan file compose tidak perlu diubah saat deploy.
+
+**`backend/.env`**
 
 | Variabel                        | Fungsi                                                                       | Bawaan                                          |
 | ------------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------- |
 | `DB_NAME`                     | Nama database                                                                | `ewallet`                                     |
 | `DB_USERNAME`                 | User database                                                                | `ewallet`                                     |
 | `DB_PASSWORD`                 | Password database. **Ganti di produksi**                               | `ewallet`                                     |
-| `DB_PORT`                     | Port database di komputer development (`docker-compose.yml`)               | `5432`                                        |
+| `DB_PORT`                     | Port database di komputer development (`docker-compose.dev.yml`)           | `5432`                                        |
 | `DB_URL`                      | JDBC URL, hanya untuk development. Di server diatur otomatis oleh compose    | `jdbc:postgresql://localhost:5432/ewallet`    |
 | `SERVER_PORT`                 | Port aplikasi di dalam container (`PORT` dari platform hosting diutamakan) | `8080`                                        |
 | `APP_BIND`                    | Alamat di server tempat API dibuka. Biarkan `127.0.0.1`                    | `127.0.0.1`                                   |
@@ -243,52 +246,61 @@ Semua yang berbeda antara development dan server ada di `backend/.env`. Kode dan
 | `CORS_ALLOWED_ORIGINS`        | Alamat frontend yang diizinkan, dipisah koma. **Isi domain produksi**  | `http://localhost:3000,http://localhost:5173` |
 | `SWAGGER_ENABLED`             | Buka atau tutup Swagger UI dan `/v3/api-docs`                              | `true`                                        |
 
+**`frontend/.env`** (semuanya punya nilai bawaan; frontend tidak menanam variabel apa pun saat build, jadi satu build bisa dipakai di domain mana pun)
+
+| Variabel         | Fungsi                                                                                         | Bawaan                  |
+| ---------------- | ---------------------------------------------------------------------------------------------- | ----------------------- |
+| `DEV_PORT`       | Port `pnpm dev`                                                                                | `5173`                  |
+| `DEV_API_TARGET` | Alamat backend untuk proxy `/api` saat `pnpm dev`                                              | `http://localhost:8080` |
+| `WEB_BIND`       | Alamat di server tempat frontend dibuka. Biarkan `127.0.0.1`                                   | `127.0.0.1`             |
+| `WEB_PORT`       | Port di server tempat frontend dibuka                                                          | `3000`                  |
+| `BACKEND_URL`    | Tujuan proxy `/api` dari container nginx. Bawaan cocok bila dijalankan bersama backend di root | `http://app:8080`       |
+
 File `.env` tidak boleh di-commit (sudah ada di `.gitignore`). `JWT_SECRET` tidak punya nilai bawaan di aplikasi, jadi aplikasi menolak start tanpa itu.
 
 ## Deploy di VPS
 
-`docker-compose.prod.yml` menjalankan API dan PostgreSQL bersama. Database tidak membuka port sama sekali, dan API hanya terbuka di `127.0.0.1` (diatur `APP_BIND` dan `APP_PORT`). Akses dari internet lewat reverse proxy dengan HTTPS.
+Setiap bagian punya Docker Compose sendiri, dan `docker-compose.yml` di root hanya memanggil keduanya (`include`). Jadi bisa dijalankan bersamaan atau sendiri-sendiri:
 
-1. Salin proyek ke server, lalu buat `backend/.env` dari `.env.example`. Ubah: `DB_PASSWORD`, `JWT_SECRET`, `COOKIE_SECURE=true`, `CORS_ALLOWED_ORIGINS` (domain frontend), dan opsional `SWAGGER_ENABLED=false`.
-2. Jalankan backend:
+| Perintah | Menjalankan |
+| --- | --- |
+| `docker compose up -d --build` (dari root) | Database, API, dan frontend sekaligus |
+| `docker compose up -d --build` (dari `backend/`) | Database dan API saja |
+| `docker compose up -d --build` (dari `frontend/`) | Frontend saja (atur `BACKEND_URL` di `frontend/.env`) |
+
+Docker Compose 2.20 atau lebih baru dibutuhkan untuk `include`. Compose membaca file `.env` di folder masing-masing secara otomatis, jadi tidak perlu `--env-file`.
+
+Database tidak membuka port sama sekali. API dan frontend hanya terbuka di `127.0.0.1` (diatur `APP_BIND`/`APP_PORT` dan `WEB_BIND`/`WEB_PORT`), dan akses dari internet lewat reverse proxy dengan HTTPS. Container frontend berisi nginx yang menyajikan aplikasi, meneruskan `/api/` ke API di jaringan Docker, dan menambahkan header keamanan (CSP, `X-Frame-Options`, dll). Karena hanya `/api/` yang diteruskan, Swagger UI dan `/actuator` tidak terbuka ke publik.
+
+1. Salin proyek ke server, lalu buat `backend/.env` dari `backend/.env.example`. Ubah: `DB_PASSWORD`, `JWT_SECRET`, `COOKIE_SECURE=true`, `CORS_ALLOWED_ORIGINS` (domain frontend), dan opsional `SWAGGER_ENABLED=false`. `frontend/.env` boleh dilewati kecuali ingin mengubah port.
+2. Jalankan dari root repo:
    ```bash
-   docker compose --env-file backend/.env -f docker-compose.prod.yml up -d --build
+   docker compose up -d --build
    ```
-3. Build frontend (di mesin mana pun yang punya pnpm), lalu salin `frontend/dist/` ke server:
-   ```bash
-   cd frontend && pnpm install && pnpm build
-   ```
-4. Atur reverse proxy agar frontend dan `/api` berada di **domain yang sama**. Contoh Nginx:
+3. Arahkan reverse proxy di VPS ke container frontend, cukup satu `location`, karena nginx di container sudah membagi `/` dan `/api/`. Contoh Nginx:
    ```nginx
    server {
        listen 443 ssl;
        server_name wallet.contohmu.com;
        # ssl_certificate dan ssl_certificate_key: isi sesuai sertifikat kamu
 
-       root /var/www/ewallet;            # isi dari frontend/dist
-       index index.html;
-
-       location /api/ {
-           proxy_pass http://127.0.0.1:8080;   # samakan dengan APP_BIND:APP_PORT
+       location / {
+           proxy_pass http://127.0.0.1:3000;   # samakan dengan WEB_BIND:WEB_PORT
            proxy_set_header Host $host;
            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
            proxy_set_header X-Forwarded-Proto $scheme;
        }
-
-       location / {
-           try_files $uri /index.html;        # agar refresh di halaman dalam tidak 404
-       }
    }
    ```
 
-   Karena hanya `/api/` yang diteruskan, Swagger UI dan `/actuator` tidak terbuka ke publik.
-
 Catatan:
 
+- Jika frontend dijalankan sendiri (bukan lewat root) sementara backend jalan di Compose terpisah, container frontend tidak bisa memakai nama `app`. Isi `BACKEND_URL` di `frontend/.env` dengan alamat yang terjangkau, misalnya `http://host.docker.internal:8080` di Docker Desktop. Di Linux, jalankan lewat compose di root.
+- Volume database bernama tetap `ewallet-data`, jadi datanya sama baik dijalankan dari `backend/` maupun dari root.
 - `DB_USERNAME` dan `DB_PASSWORD` dipakai PostgreSQL saat volume pertama kali dibuat. Mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
 - Untuk database terkelola (bukan compose di atas), biasanya perlu SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
 - Health check: `GET /actuator/health` (dari server itu sendiri, di `127.0.0.1`).
-- Docker image backend bisa dibangun sendiri: `docker build -t ewallet ./backend`. `.env` tidak pernah masuk ke image (`.dockerignore`).
+- Image bisa dibangun sendiri: `docker build -t ewallet ./backend` dan `docker build -t ewallet-web ./frontend`. `.env` tidak pernah masuk ke image (`.dockerignore`).
 
 ## Testing
 
@@ -319,16 +331,14 @@ pnpm test
 - Access token tidak bisa dicabut sebelum kedaluwarsa (maksimal 60 menit); yang dicabut adalah refresh token.
 - `POST /api/auth/register` mengungkap apakah email sudah terdaftar (409), jadi perlindungan terhadap enumerasi email hanya sebagian.
 - Ini simulasi: tidak ada integrasi pembayaran sungguhan, dan top up langsung menambah saldo. Kategori `WITHDRAW` ada di skema tetapi belum punya endpoint.
-- Frontend belum punya Dockerfile; di server ia disajikan dari `dist/` oleh reverse proxy.
 
 ## Struktur Proyek
 
 ```
 e-wallet/
-├── backend/                  # API Spring Boot (Maven, Dockerfile, .env)
-├── frontend/                 # Aplikasi web (React, Vite, TypeScript, Tailwind)
-├── docker-compose.yml        # PostgreSQL untuk development
-└── docker-compose.prod.yml   # API + PostgreSQL untuk server
+├── backend/                  # API Spring Boot (Maven, Dockerfile, docker-compose.yml, .env)
+├── frontend/                 # Aplikasi web (React, Vite, Dockerfile, nginx, docker-compose.yml, .env)
+└── docker-compose.yml        # menjalankan backend dan frontend sekaligus (memanggil compose masing-masing)
 ```
 
 ```

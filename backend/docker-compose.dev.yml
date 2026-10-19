@@ -1,0 +1,11 @@
+# Tambahan untuk development: membuka port database ke komputer kamu (hanya localhost),
+# supaya aplikasi yang dijalankan di luar Docker (./mvnw spring-boot:run) bisa terhubung.
+#
+#   cd backend
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+#
+# Port diatur DB_PORT di backend/.env. Samakan dengan port di DB_URL.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"

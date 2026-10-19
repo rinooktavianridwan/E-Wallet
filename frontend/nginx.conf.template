@@ -1,0 +1,39 @@
+# Template ini diproses saat container start: ${BACKEND_URL} diganti dari environment,
+# sedangkan variabel nginx seperti $host dan $uri dibiarkan apa adanya.
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Header keamanan untuk semua respons
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+    # DNS bawaan Docker. Alamat backend baru dicari saat ada request, jadi container ini tetap bisa
+    # start walau backend belum jalan (request /api akan dijawab 502 sampai backend siap).
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    location /api/ {
+        set $backend "${BACKEND_URL}";
+        proxy_pass $backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # File hasil build diberi nama berisi hash, jadi aman di-cache lama
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # Halaman aplikasi: selalu ambil yang terbaru, dan rute dalam (misalnya /riwayat) kembali ke index.html
+    location / {
+        expires -1;
+        try_files $uri /index.html;
+    }
+}
