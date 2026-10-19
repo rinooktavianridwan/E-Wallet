@@ -4,6 +4,7 @@ import com.ewallet.auth.service.JwtService;
 import com.ewallet.entity.User;
 import com.ewallet.entity.Wallet;
 import com.ewallet.transaction.repository.TransactionRepository;
+import com.ewallet.transfer.repository.IdempotencyRecordRepository;
 import com.ewallet.user.repository.UserRepository;
 import com.ewallet.wallet.repository.WalletRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,9 @@ public abstract class IntegrationTestBase {
 	protected TransactionRepository transactionRepository;
 
 	@Autowired
+	protected IdempotencyRecordRepository idempotencyRecordRepository;
+
+	@Autowired
 	protected PasswordEncoder passwordEncoder;
 
 	@Autowired
@@ -47,6 +51,7 @@ public abstract class IntegrationTestBase {
 				.apply(springSecurity())
 				.build();
 
+		idempotencyRecordRepository.deleteAll();
 		transactionRepository.deleteAll();
 		walletRepository.deleteAll();
 		userRepository.deleteAll();

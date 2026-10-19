@@ -68,6 +68,20 @@ public class GlobalExceptionHandler {
 		return problem;
 	}
 
+	@ExceptionHandler(InvalidIdempotencyKeyException.class)
+	public ProblemDetail handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+		problem.setTitle("Invalid idempotency key");
+		return problem;
+	}
+
+	@ExceptionHandler(IdempotencyKeyReuseException.class)
+	public ProblemDetail handleIdempotencyKeyReuse(IdempotencyKeyReuseException ex) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+		problem.setTitle("Idempotency key reused");
+		return problem;
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ProblemDetail handleValidation(MethodArgumentNotValidException ex) {
 		Map<String, String> errors = new LinkedHashMap<>();

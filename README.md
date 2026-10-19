@@ -21,7 +21,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [x] Top up (`POST /api/wallets/top-up`, wallet dikunci selama proses supaya aman dari top up bersamaan)
 - [x] Transfer antar pengguna (`POST /api/transfers`, atomik, dua wallet dikunci urut berdasarkan id supaya tidak deadlock)
 - [x] Riwayat transaksi dengan paginasi (`GET /api/transactions?page=0&size=20`, terbaru lebih dulu)
-- [ ] Idempotency key untuk mencegah transfer ganda
+- [x] Idempotency key untuk mencegah transfer ganda (header `Idempotency-Key` di `POST /api/transfers`, request yang diulang mengembalikan hasil asli)
 - [ ] Dokumentasi API (OpenAPI/Swagger)
 - [ ] Test konkurensi dan integration test
 - [ ] Refresh token di PostgreSQL (rotasi dan logout yang mencabut sesi)
@@ -29,7 +29,7 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 
 ## Desain Database
 
-Tiga tabel:
+Tiga tabel utama (ditambah `idempotency_records` untuk idempotency key):
 
 | Tabel | Fungsi |
 |---|---|
@@ -55,7 +55,7 @@ src/main/java/com/ewallet/
 ├── user/            controller, service, dto, repository
 ├── wallet/          controller, service, dto, repository (cek saldo)
 ├── transaction/     controller, dto, repository, service (riwayat, nomor referensi)
-└── transfer/        controller, service, dto (top up dan transfer)
+└── transfer/        controller, service, dto, repository (top up, transfer, idempotency)
 src/main/resources/
 ├── application.properties
 └── db/migration/    skrip Flyway
