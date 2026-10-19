@@ -1,0 +1,35 @@
+# Untuk VPS: database tidak membuka port sama sekali, aplikasi hanya bisa diakses dari localhost server
+# (reverse proxy seperti Nginx atau Caddy yang menghadap internet).
+services:
+  db:
+    image: postgres:16
+    container_name: ewallet-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ewallet
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ewallet-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ewallet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: ewallet-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/ewallet
+      SERVER_PORT: 8080
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  ewallet-data:

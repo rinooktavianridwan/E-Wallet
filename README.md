@@ -103,6 +103,40 @@ Lalu jalankan:
 
 User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST_DB_URL`.
 
+## Deploy
+
+Proyek menyertakan `Dockerfile` (multi-stage: build dengan JDK, jalan dengan JRE sebagai user non-root). Platform hosting yang mendukung Docker bisa membangunnya langsung dari repository.
+
+Uji secara lokal:
+
+```bash
+docker build -t ewallet .
+docker run --env-file .env -p 127.0.0.1:8080:8080 ewallet
+```
+
+`127.0.0.1:` di depan port membuat container hanya bisa diakses dari komputer itu sendiri, tidak dari jaringan luar.
+
+### Deploy di VPS
+
+`docker-compose.prod.yml` menjalankan aplikasi dan PostgreSQL bersama. Database tidak membuka port sama sekali (hanya dapat dijangkau aplikasi lewat jaringan internal Docker), dan aplikasi hanya terbuka di `127.0.0.1:8080`. Akses dari internet lewat reverse proxy (Nginx atau Caddy) dengan HTTPS.
+
+1. Salin proyek ke server, buat `.env` dari `.env.example`. Isi `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, dan `CORS_ALLOWED_ORIGINS` dengan nilai produksi. `DB_URL` diatur otomatis oleh compose.
+2. Jalankan:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+3. Arahkan reverse proxy ke `http://127.0.0.1:8080`.
+
+Catatan: `DB_USERNAME` dan `DB_PASSWORD` dipakai PostgreSQL saat volume pertama kali dibuat. Mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
+
+Catatan:
+
+- Dari dalam container, `localhost` bukan komputer host. Untuk menguji dengan PostgreSQL di host, isi `DB_URL` dengan `host.docker.internal` sebagai pengganti `localhost`.
+- Port dibaca dari `PORT` (diisi otomatis oleh banyak platform), lalu `SERVER_PORT`, lalu 8080.
+- Untuk database terkelola (bukan compose di atas), biasanya membutuhkan SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
+- Set `JWT_SECRET` dan `CORS_ALLOWED_ORIGINS` (domain frontend) di environment platform. Jangan memasukkan `.env` ke image; `.dockerignore` sudah mengecualikannya.
+- Health check: `GET /actuator/health`.
+
 ## Variabel Environment
 
 | Variabel | Fungsi | Contoh |
@@ -110,7 +144,7 @@ User dan password database diambil dari `.env`; URL test bisa diubah lewat `TEST
 | `DB_URL` | JDBC URL PostgreSQL | `jdbc:postgresql://localhost:5432/ewallet` |
 | `DB_USERNAME` | User database | `ewallet` |
 | `DB_PASSWORD` | Password database | |
-| `SERVER_PORT` | Port aplikasi | `8080` |
+| `SERVER_PORT` | Port aplikasi (`PORT` dari platform diutamakan) | `8080` |
 | `JWT_SECRET` | Kunci penandatangan token, wajib diisi, minimal 32 karakter | string acak panjang |
 | `JWT_EXPIRATION_MINUTES` | Masa berlaku token dalam menit | `60` |
 | `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan, dipisah koma | `http://localhost:5173` |
