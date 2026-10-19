@@ -73,6 +73,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Idempotency key reused", ex);
 	}
 
+	@ExceptionHandler(InvalidRefreshTokenException.class)
+	public ProblemDetail handleInvalidRefreshToken(InvalidRefreshTokenException ex) {
+		return problem(HttpStatus.UNAUTHORIZED, "Invalid refresh token", ex);
+	}
+
 	@Override
 	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
 																  HttpHeaders headers,

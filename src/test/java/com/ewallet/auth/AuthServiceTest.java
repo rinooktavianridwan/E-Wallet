@@ -6,6 +6,7 @@ import com.ewallet.auth.dto.RegisterResponse;
 import com.ewallet.auth.dto.TokenResponse;
 import com.ewallet.auth.service.AuthService;
 import com.ewallet.auth.service.JwtService;
+import com.ewallet.auth.service.RefreshTokenService;
 import com.ewallet.common.exception.EmailAlreadyUsedException;
 import com.ewallet.common.exception.InvalidCredentialsException;
 import com.ewallet.entity.User;
@@ -45,6 +46,9 @@ class AuthServiceTest {
 
 	@Mock
 	private JwtService jwtService;
+
+	@Mock
+	private RefreshTokenService refreshTokenService;
 
 	@InjectMocks
 	private AuthService authService;
@@ -105,12 +109,16 @@ class AuthServiceTest {
 		when(passwordEncoder.matches("rahasia123", "HASHED")).thenReturn(true);
 		when(jwtService.generateToken(user)).thenReturn("TOKEN");
 		when(jwtService.getExpiresInSeconds()).thenReturn(3600L);
+		when(refreshTokenService.issue(any())).thenReturn("REFRESH");
+		when(refreshTokenService.getExpiresInSeconds()).thenReturn(604800L);
 
 		TokenResponse response = authService.login(new LoginRequest(" Budi@Mail.com ", "rahasia123"));
 
 		assertThat(response.accessToken()).isEqualTo("TOKEN");
 		assertThat(response.tokenType()).isEqualTo("Bearer");
 		assertThat(response.expiresIn()).isEqualTo(3600L);
+		assertThat(response.refreshToken()).isEqualTo("REFRESH");
+		assertThat(response.refreshExpiresIn()).isEqualTo(604800L);
 	}
 
 	@Test

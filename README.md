@@ -25,12 +25,12 @@ Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek 
 - [x] Dokumentasi API (Swagger UI di `/swagger-ui.html`, spesifikasi OpenAPI di `/v3/api-docs`)
 - [x] Test konkurensi dan integration test (top up paralel, transfer silang tanpa deadlock, idempotency paralel)
 - [x] CORS (dari `CORS_ALLOWED_ORIGINS`) dan error handling seragam (format ProblemDetail, error 500 tidak membocorkan detail)
-- [ ] Refresh token di PostgreSQL (rotasi dan logout yang mencabut sesi)
+- [x] Refresh token di PostgreSQL (`POST /api/auth/refresh` dengan rotasi, `POST /api/auth/logout` yang mencabut sesi; token yang dipakai ulang mencabut seluruh rantainya)
 - [ ] Deploy beserta frontend
 
 ## Desain Database
 
-Tiga tabel utama (ditambah `idempotency_records` untuk idempotency key):
+Tiga tabel utama (ditambah `idempotency_records` untuk idempotency key dan `refresh_tokens` untuk sesi login):
 
 | Tabel | Fungsi |
 |---|---|
@@ -51,7 +51,7 @@ Beberapa keputusan desain:
 src/main/java/com/ewallet/
 ├── EwalletApplication.java
 ├── entity/          Entity JPA: User, Wallet, Transaction, enum
-├── auth/            controller, service, dto (register, login, JWT)
+├── auth/            controller, service, dto, repository (register, login, JWT, refresh token)
 ├── common/          config (security) dan exception (error handler)
 ├── user/            controller, service, dto, repository
 ├── wallet/          controller, service, dto, repository (cek saldo)
@@ -146,7 +146,8 @@ Catatan:
 | `DB_PASSWORD` | Password database | |
 | `SERVER_PORT` | Port aplikasi (`PORT` dari platform diutamakan) | `8080` |
 | `JWT_SECRET` | Kunci penandatangan token, wajib diisi, minimal 32 karakter | string acak panjang |
-| `JWT_EXPIRATION_MINUTES` | Masa berlaku token dalam menit | `60` |
+| `JWT_EXPIRATION_MINUTES` | Masa berlaku access token dalam menit | `60` |
+| `JWT_REFRESH_EXPIRATION_DAYS` | Masa berlaku refresh token dalam hari | `7` |
 | `CORS_ALLOWED_ORIGINS` | Alamat frontend yang diizinkan, dipisah koma | `http://localhost:5173` |
 
 File `.env` tidak boleh di-commit. Untuk deployment, set variabel yang sama langsung di environment platform hosting.

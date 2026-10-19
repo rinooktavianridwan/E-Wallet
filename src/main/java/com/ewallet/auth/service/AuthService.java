@@ -22,15 +22,18 @@ public class AuthService {
 	private final WalletRepository walletRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
+	private final RefreshTokenService refreshTokenService;
 
 	public AuthService(UserRepository userRepository,
 					   WalletRepository walletRepository,
 					   PasswordEncoder passwordEncoder,
-					   JwtService jwtService) {
+					   JwtService jwtService,
+					   RefreshTokenService refreshTokenService) {
 		this.userRepository = userRepository;
 		this.walletRepository = walletRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.jwtService = jwtService;
+		this.refreshTokenService = refreshTokenService;
 	}
 
 	@Transactional
@@ -56,7 +59,7 @@ public class AuthService {
 		return new RegisterResponse(user.getId(), user.getEmail(), user.getName());
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public TokenResponse login(LoginRequest request) {
 		String email = request.email().trim().toLowerCase();
 
@@ -68,6 +71,25 @@ public class AuthService {
 			throw new InvalidCredentialsException();
 		}
 
-		return new TokenResponse(jwtService.generateToken(user), "Bearer", jwtService.getExpiresInSeconds());
+		return tokenResponse(user, refreshTokenService.issue(user.getId()));
+	}
+
+	// sengaja tanpa @Transactional: rotate() punya transaksi sendiri dan boleh commit walaupun melempar exception
+	public TokenResponse refresh(String refreshToken) {
+		RefreshTokenService.Rotation rotation = refreshTokenService.rotate(refreshToken);
+		return tokenResponse(rotation.user(), rotation.refreshToken());
+	}
+
+	public void logout(String refreshToken) {
+		refreshTokenService.revoke(refreshToken);
+	}
+
+	private TokenResponse tokenResponse(User user, String refreshToken) {
+		return new TokenResponse(
+				jwtService.generateToken(user),
+				"Bearer",
+				jwtService.getExpiresInSeconds(),
+				refreshToken,
+				refreshTokenService.getExpiresInSeconds());
 	}
 }

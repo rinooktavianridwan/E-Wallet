@@ -1,6 +1,7 @@
 package com.ewallet.auth.controller;
 
 import com.ewallet.auth.dto.LoginRequest;
+import com.ewallet.auth.dto.RefreshTokenRequest;
 import com.ewallet.auth.dto.RegisterRequest;
 import com.ewallet.auth.dto.RegisterResponse;
 import com.ewallet.auth.dto.TokenResponse;
@@ -33,5 +34,16 @@ public class AuthController {
 	@PostMapping("/login")
 	public TokenResponse login(@Valid @RequestBody LoginRequest request) {
 		return authService.login(request);
+	}
+
+	@PostMapping("/refresh")
+	public TokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+		return authService.refresh(request.refreshToken());
+	}
+
+	@PostMapping("/logout")
+	public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+		authService.logout(request.refreshToken());
+		return ResponseEntity.noContent().build();
 	}
 }
