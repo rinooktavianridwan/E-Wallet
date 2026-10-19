@@ -1,3 +1,5 @@
+# Jalankan dengan: docker compose --env-file backend/.env -f docker-compose.prod.yml up -d --build
+# (--env-file dibutuhkan agar ${DB_USERNAME} dan ${DB_PASSWORD} di bawah terisi)
 # Untuk VPS: database tidak membuka port sama sekali, aplikasi hanya bisa diakses dari localhost server
 # (reverse proxy seperti Nginx atau Caddy yang menghadap internet).
 services:
@@ -18,13 +20,13 @@ services:
       retries: 10
 
   app:
-    build: .
+    build: ./backend
     container_name: ewallet-app
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
-    env_file: .env
+    env_file: ./backend/.env
     environment:
       DB_URL: jdbc:postgresql://db:5432/ewallet
       SERVER_PORT: 8080

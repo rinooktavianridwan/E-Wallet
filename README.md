@@ -2,7 +2,7 @@
 
 Simulasi dompet digital (e-wallet) berbasis REST API dengan Spring Boot. Proyek portofolio yang berfokus pada konsistensi data keuangan: transfer atomik, pencatatan transaksi gaya double-entry, dan penanganan akses bersamaan (concurrency).
 
-> **Status:** dalam pengembangan. Saat ini baru fondasi (skema database dan entity). Fitur lain ada di bagian [Rencana Fitur](#rencana-fitur).
+> **Status:** backend selesai dan teruji. Frontend web menyusul (folder `frontend/`). Daftar fitur ada di bagian [Rencana Fitur](#rencana-fitur).
 
 ## Teknologi
 
@@ -47,6 +47,18 @@ Beberapa keputusan desain:
 
 ## Struktur Proyek
 
+Monorepo:
+
+```
+e-wallet/
+├── backend/                Spring Boot API (Maven, Dockerfile, .env)
+├── frontend/               Aplikasi web (menyusul)
+├── docker-compose.yml      PostgreSQL untuk development
+└── docker-compose.prod.yml Aplikasi + PostgreSQL untuk server
+```
+
+Isi `backend/`:
+
 ```
 src/main/java/com/ewallet/
 ├── EwalletApplication.java
@@ -66,24 +78,25 @@ Pengelompokan per fitur; controller, service, dan dto ditambahkan seiring fitur 
 
 ## Menjalankan Secara Lokal
 
-Prasyarat: JDK 21 dan Docker.
+Prasyarat: JDK 21 dan Docker (atau PostgreSQL yang sudah terpasang).
 
 1. Salin konfigurasi environment:
    ```bash
+   cd backend
    cp .env.example .env
    ```
    Di PowerShell: `Copy-Item .env.example .env`. Sesuaikan nilainya jika perlu.
-2. Jalankan database:
+2. Jalankan database (dari root repo):
    ```bash
    docker compose up -d
    ```
-3. Jalankan aplikasi:
+3. Jalankan aplikasi (dari folder `backend/`):
    ```bash
    ./mvnw spring-boot:run
    ```
    Di Windows: `mvnw.cmd spring-boot:run`.
 
-Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied 1 migration`). Endpoint register, login, dan `/actuator/health` terbuka; endpoint lain wajib memakai header `Authorization: Bearer <token>`.
+Saat start, Flyway otomatis membuat tabel (lihat log: `Successfully applied N migrations`). Dokumentasi API ada di `http://localhost:8080/swagger-ui.html`. Endpoint register, login, dan `/actuator/health` terbuka; endpoint lain wajib memakai header `Authorization: Bearer <token>`.
 
 > Jika memakai Docker Compose, nilai `DB_USERNAME` dan `DB_PASSWORD` di `.env` harus sama dengan yang dipakai `docker-compose.yml` (bawaan: `ewallet`/`ewallet`).
 
@@ -95,7 +108,7 @@ Test memakai database terpisah bernama `ewallet_test` (supaya data development a
 psql -U <user> -c "CREATE DATABASE ewallet_test;"
 ```
 
-Lalu jalankan:
+Lalu jalankan dari folder `backend/`:
 
 ```bash
 ./mvnw test
@@ -110,8 +123,8 @@ Proyek menyertakan `Dockerfile` (multi-stage: build dengan JDK, jalan dengan JRE
 Uji secara lokal:
 
 ```bash
-docker build -t ewallet .
-docker run --env-file .env -p 127.0.0.1:8080:8080 ewallet
+docker build -t ewallet ./backend
+docker run --env-file backend/.env -p 127.0.0.1:8080:8080 ewallet
 ```
 
 `127.0.0.1:` di depan port membuat container hanya bisa diakses dari komputer itu sendiri, tidak dari jaringan luar.
@@ -120,10 +133,10 @@ docker run --env-file .env -p 127.0.0.1:8080:8080 ewallet
 
 `docker-compose.prod.yml` menjalankan aplikasi dan PostgreSQL bersama. Database tidak membuka port sama sekali (hanya dapat dijangkau aplikasi lewat jaringan internal Docker), dan aplikasi hanya terbuka di `127.0.0.1:8080`. Akses dari internet lewat reverse proxy (Nginx atau Caddy) dengan HTTPS.
 
-1. Salin proyek ke server, buat `.env` dari `.env.example`. Isi `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, dan `CORS_ALLOWED_ORIGINS` dengan nilai produksi. `DB_URL` diatur otomatis oleh compose.
+1. Salin proyek ke server, buat `backend/.env` dari `backend/.env.example`. Isi `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`, dan `CORS_ALLOWED_ORIGINS` dengan nilai produksi. `DB_URL` diatur otomatis oleh compose.
 2. Jalankan:
    ```bash
-   docker compose -f docker-compose.prod.yml up -d --build
+   docker compose --env-file backend/.env -f docker-compose.prod.yml up -d --build
    ```
 3. Arahkan reverse proxy ke `http://127.0.0.1:8080`.
 
