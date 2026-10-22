@@ -1,25 +1,14 @@
-# Backend saja: API Spring Boot + PostgreSQL.
-#
-#   cd backend && docker compose up -d --build
-#
-# Bisa dijalankan sendiri atau bersama frontend lewat docker-compose.yml di root repo.
-# Semua pengaturan (password, port, domain) ada di backend/.env, lihat .env.example.
-# Compose membaca backend/.env otomatis, jadi tidak perlu --env-file.
-#
-# Database tidak membuka port sama sekali, dan API hanya bisa diakses dari server itu sendiri
-# (lewat reverse proxy). Untuk development dengan aplikasi di luar Docker, tambahkan
-# docker-compose.dev.yml yang membuka port database ke localhost:
-#
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+# Development: PostgreSQL + API. Pengaturan dari backend/.env
 services:
   db:
     image: postgres:16
     container_name: ewallet-db
-    restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-ewallet}
       POSTGRES_USER: ${DB_USERNAME:-ewallet}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-ewallet}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - ewallet-data:/var/lib/postgresql/data
     healthcheck:
@@ -31,19 +20,16 @@ services:
   app:
     build: .
     container_name: ewallet-app
-    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     env_file: .env
     environment:
-      # Menimpa DB_URL dari .env: di dalam jaringan Docker, database dijangkau lewat nama service "db"
       DB_URL: jdbc:postgresql://db:5432/${DB_NAME:-ewallet}
-      SERVER_PORT: ${SERVER_PORT:-8080}
+      SERVER_PORT: "8080"
     ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:${SERVER_PORT:-8080}"
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
 
 volumes:
   ewallet-data:
-    # Nama tetap, supaya data yang sama dipakai baik dijalankan dari backend/ maupun dari root repo
     name: ewallet-data

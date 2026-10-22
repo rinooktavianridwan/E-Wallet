@@ -1,20 +1,11 @@
-# Frontend saja: nginx yang menyajikan aplikasi dan meneruskan /api ke backend.
-#
-#   cd frontend && docker compose up -d --build
-#
-# Bisa dijalankan sendiri atau bersama backend lewat docker-compose.yml di root repo.
-# Pengaturan (port, alamat backend) ada di frontend/.env, lihat .env.example.
+# Development: nginx + aplikasi web. Pengaturan dari frontend/.env
 services:
   web:
     build: .
     container_name: ewallet-web
-    restart: unless-stopped
     environment:
-      # Bersama backend (compose di root): nama service "app". Jalan sendiri: isi di frontend/.env,
-      # misalnya http://host.docker.internal:8080 untuk backend yang jalan di komputer yang sama.
       BACKEND_URL: ${BACKEND_URL:-http://app:8080}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      # 127.0.0.1 artinya hanya bisa diakses dari server itu sendiri (lewat reverse proxy).
-      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:8080"
+      - "127.0.0.1:${WEB_PORT:-3000}:8080"

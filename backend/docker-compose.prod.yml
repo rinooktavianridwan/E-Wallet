@@ -1,0 +1,13 @@
+# Server: API saja, database memakai PostgreSQL native (DB_URL di backend/.env)
+services:
+  app:
+    build: .
+    container_name: ewallet-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVER_PORT: "8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"

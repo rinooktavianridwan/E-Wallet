@@ -1,42 +1,4 @@
-# Jalankan dengan: docker compose --env-file backend/.env -f docker-compose.prod.yml up -d --build
-# (--env-file dibutuhkan agar variabel seperti ${DB_USERNAME} di bawah terisi dari backend/.env)
-#
-# Semua yang berbeda antar server (password, port, domain, nama database) ada di backend/.env.
-# File ini tidak perlu diubah saat deploy.
-#
-# Untuk VPS: database tidak membuka port sama sekali, aplikasi hanya bisa diakses dari localhost server
-# (reverse proxy seperti Nginx atau Caddy yang menghadap internet).
-services:
-  db:
-    image: postgres:16
-    container_name: ewallet-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-ewallet}
-      POSTGRES_USER: ${DB_USERNAME}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - ewallet-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME:-ewallet}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  app:
-    build: ./backend
-    container_name: ewallet-app
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file: ./backend/.env
-    environment:
-      # Menimpa DB_URL dari .env: di dalam jaringan Docker, database dijangkau lewat nama service "db"
-      DB_URL: jdbc:postgresql://db:5432/${DB_NAME:-ewallet}
-      SERVER_PORT: ${SERVER_PORT:-8080}
-    ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:${SERVER_PORT:-8080}"
-
-volumes:
-  ewallet-data:
+# Server: docker compose -f docker-compose.prod.yml up -d --build
+include:
+  - path: backend/docker-compose.prod.yml
+  - path: frontend/docker-compose.prod.yml

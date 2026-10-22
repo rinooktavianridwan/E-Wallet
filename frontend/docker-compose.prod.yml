@@ -1,0 +1,12 @@
+# Server: nginx + aplikasi web. Pengaturan dari frontend/.env
+services:
+  web:
+    build: .
+    container_name: ewallet-web
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: ${BACKEND_URL:-http://app:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:8080"

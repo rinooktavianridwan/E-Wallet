@@ -208,9 +208,9 @@ cd backend
 cp .env.example .env            # PowerShell: Copy-Item .env.example .env
 cd ..
 
-# 2. Database, dari folder backend/ (docker-compose.dev.yml membuka port database ke localhost)
+# 2. Database saja, dari folder backend/ (port database dibuka ke localhost)
 cd backend
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d db
+docker compose up -d db
 
 # 3. Backend, di terminal pertama (masih di folder backend/)
 ./mvnw spring-boot:run          # Windows: mvnw.cmd spring-boot:run
@@ -234,11 +234,11 @@ Semua yang berbeda antara development dan server ada di file `.env`: `backend/.e
 | `DB_NAME`                     | Nama database                                                                | `ewallet`                                     |
 | `DB_USERNAME`                 | User database                                                                | `ewallet`                                     |
 | `DB_PASSWORD`                 | Password database. **Ganti di produksi**                               | `ewallet`                                     |
-| `DB_PORT`                     | Port database di komputer development (`docker-compose.dev.yml`)           | `5432`                                        |
-| `DB_URL`                      | JDBC URL, hanya untuk development. Di server diatur otomatis oleh compose    | `jdbc:postgresql://localhost:5432/ewallet`    |
-| `SERVER_PORT`                 | Port aplikasi di dalam container (`PORT` dari platform hosting diutamakan) | `8080`                                        |
-| `APP_BIND`                    | Alamat di server tempat API dibuka. Biarkan `127.0.0.1`                    | `127.0.0.1`                                   |
-| `APP_PORT`                    | Port di server tempat API dibuka                                             | `8080`                                        |
+| `DB_PORT`                     | Port database di komputer development (`docker-compose.yml`)           | `5432`                                        |
+| `DB_URL`                      | JDBC URL. Di `docker-compose.yml` diatur otomatis; produksi: alamat PostgreSQL native    | `jdbc:postgresql://localhost:5432/ewallet`    |
+| `SERVER_PORT`                 | Port aplikasi untuk `./mvnw` (di Docker dikunci 8080; ubah `APP_PORT`) | `8080`                                        |
+| `APP_BIND`                    | Alamat tempat API dibuka (`docker-compose.prod.yml`). Biarkan `127.0.0.1`                    | `127.0.0.1`                                   |
+| `APP_PORT`                    | Port di komputer/server tempat API dibuka                                             | `8080`                                        |
 | `JWT_SECRET`                  | Kunci penandatangan token, minimal 32 karakter. **Ganti di produksi**  |                                                 |
 | `JWT_EXPIRATION_MINUTES`      | Umur access token (menit)                                                    | `60`                                          |
 | `JWT_REFRESH_EXPIRATION_DAYS` | Umur refresh token (hari)                                                    | `7`                                           |
@@ -252,32 +252,57 @@ Semua yang berbeda antara development dan server ada di file `.env`: `backend/.e
 | ---------------- | ---------------------------------------------------------------------------------------------- | ----------------------- |
 | `DEV_PORT`       | Port `pnpm dev`                                                                                | `5173`                  |
 | `DEV_API_TARGET` | Alamat backend untuk proxy `/api` saat `pnpm dev`                                              | `http://localhost:8080` |
-| `WEB_BIND`       | Alamat di server tempat frontend dibuka. Biarkan `127.0.0.1`                                   | `127.0.0.1`             |
-| `WEB_PORT`       | Port di server tempat frontend dibuka                                                          | `3000`                  |
+| `WEB_BIND`       | Alamat tempat frontend dibuka (`docker-compose.prod.yml`). Biarkan `127.0.0.1`                                   | `127.0.0.1`             |
+| `WEB_PORT`       | Port di komputer/server tempat frontend dibuka                                                          | `3000`                  |
 | `BACKEND_URL`    | Tujuan proxy `/api` dari container nginx. Bawaan cocok bila dijalankan bersama backend di root | `http://app:8080`       |
 
 File `.env` tidak boleh di-commit (sudah ada di `.gitignore`). `JWT_SECRET` tidak punya nilai bawaan di aplikasi, jadi aplikasi menolak start tanpa itu.
 
 ## Deploy di VPS
 
-Setiap bagian punya Docker Compose sendiri, dan `docker-compose.yml` di root hanya memanggil keduanya (`include`). Jadi bisa dijalankan bersamaan atau sendiri-sendiri:
+Setiap bagian punya dua file Docker Compose, dan dua file di root hanya memanggil keduanya (`include`, tanpa konfigurasi sendiri):
+
+| File | Isi |
+| --- | --- |
+| `backend/docker-compose.yml` | **Development**: container PostgreSQL + API |
+| `backend/docker-compose.prod.yml` | **Server**: API saja, database memakai PostgreSQL native di server |
+| `frontend/docker-compose.yml` | Development: nginx + aplikasi web |
+| `frontend/docker-compose.prod.yml` | Server: nginx + aplikasi web (restart otomatis) |
+| `docker-compose.yml` (root) | Memanggil dua file development di atas |
+| `docker-compose.prod.yml` (root) | Memanggil dua file server di atas |
 
 | Perintah | Menjalankan |
 | --- | --- |
-| `docker compose up -d --build` (dari root) | Database, API, dan frontend sekaligus |
-| `docker compose up -d --build` (dari `backend/`) | Database dan API saja |
-| `docker compose up -d --build` (dari `frontend/`) | Frontend saja (atur `BACKEND_URL` di `frontend/.env`) |
+| `docker compose up -d --build` (dari root) | Development: database, API, dan frontend |
+| `docker compose -f docker-compose.prod.yml up -d --build` (dari root) | Server: API dan frontend |
+| `docker compose up -d --build` (dari `backend/` atau `frontend/`) | Development, bagian itu saja |
+| `docker compose -f docker-compose.prod.yml up -d --build` (dari `backend/` atau `frontend/`) | Server, bagian itu saja |
 
-Docker Compose 2.20 atau lebih baru dibutuhkan untuk `include`. Compose membaca file `.env` di folder masing-masing secara otomatis, jadi tidak perlu `--env-file`.
+Docker Compose 2.20 atau lebih baru dibutuhkan untuk `include`. Compose membaca file `.env` di folder masing-masing secara otomatis, jadi tidak perlu `--env-file`. Versi development dan server memakai nama container yang sama, jadi jalankan salah satu saja.
 
-Database tidak membuka port sama sekali. API dan frontend hanya terbuka di `127.0.0.1` (diatur `APP_BIND`/`APP_PORT` dan `WEB_BIND`/`WEB_PORT`), dan akses dari internet lewat reverse proxy dengan HTTPS. Container frontend berisi nginx yang menyajikan aplikasi, meneruskan `/api/` ke API di jaringan Docker, dan menambahkan header keamanan (CSP, `X-Frame-Options`, dll). Karena hanya `/api/` yang diteruskan, Swagger UI dan `/actuator` tidak terbuka ke publik.
+Di server, API dan frontend hanya terbuka di `127.0.0.1` (diatur `APP_BIND`/`APP_PORT` dan `WEB_BIND`/`WEB_PORT`), dan akses dari internet lewat reverse proxy dengan HTTPS. Container frontend berisi nginx yang menyajikan aplikasi, meneruskan `/api/` ke API di jaringan Docker, dan menambahkan header keamanan (CSP, `X-Frame-Options`, dll). Karena hanya `/api/` yang diteruskan, Swagger UI dan `/actuator` tidak terbuka ke publik.
 
-1. Salin proyek ke server, lalu buat `backend/.env` dari `backend/.env.example`. Ubah: `DB_PASSWORD`, `JWT_SECRET`, `COOKIE_SECURE=true`, `CORS_ALLOWED_ORIGINS` (domain frontend), dan opsional `SWAGGER_ENABLED=false`. `frontend/.env` boleh dilewati kecuali ingin mengubah port.
-2. Jalankan dari root repo:
+1. **Siapkan PostgreSQL native** di server (sekali saja). Buat user dan database:
    ```bash
-   docker compose up -d --build
+   sudo -u postgres psql -c "CREATE USER ewallet WITH PASSWORD 'password-kuat';"
+   sudo -u postgres psql -c "CREATE DATABASE ewallet OWNER ewallet;"
    ```
-3. Arahkan reverse proxy di VPS ke container frontend, cukup satu `location`, karena nginx di container sudah membagi `/` dan `/api/`. Contoh Nginx:
+   Lalu izinkan container Docker menjangkaunya. Di `postgresql.conf`, tambahkan alamat Docker host (cek dengan `ip addr show docker0`, biasanya `172.17.0.1`):
+   ```
+   listen_addresses = 'localhost,172.17.0.1'
+   ```
+   Di `pg_hba.conf`, izinkan jaringan Docker memakai akun itu:
+   ```
+   host  ewallet  ewallet  172.16.0.0/12  scram-sha-256
+   ```
+   Restart PostgreSQL (`sudo systemctl restart postgresql`). Jika memakai `ufw`, izinkan juga: `sudo ufw allow from 172.16.0.0/12 to any port 5432`. Port 5432 tidak dibuka ke internet.
+2. Salin proyek ke server, lalu buat `backend/.env` dari `backend/.env.example`. Ubah: `DB_URL=jdbc:postgresql://host.docker.internal:5432/ewallet`, `DB_USERNAME`, `DB_PASSWORD` (sesuai akun di atas), `JWT_SECRET`, `COOKIE_SECURE=true`, `CORS_ALLOWED_ORIGINS` (domain frontend), dan opsional `SWAGGER_ENABLED=false`. `frontend/.env` boleh dilewati kecuali ingin mengubah port.
+3. Jalankan dari root repo:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+   Flyway membuat tabel otomatis saat API pertama kali start.
+4. Arahkan reverse proxy di VPS ke container frontend, cukup satu `location`, karena nginx di container sudah membagi `/` dan `/api/`. Contoh Nginx:
    ```nginx
    server {
        listen 443 ssl;
@@ -295,10 +320,10 @@ Database tidak membuka port sama sekali. API dan frontend hanya terbuka di `127.
 
 Catatan:
 
-- Jika frontend dijalankan sendiri (bukan lewat root) sementara backend jalan di Compose terpisah, container frontend tidak bisa memakai nama `app`. Isi `BACKEND_URL` di `frontend/.env` dengan alamat yang terjangkau, misalnya `http://host.docker.internal:8080` di Docker Desktop. Di Linux, jalankan lewat compose di root.
-- Volume database bernama tetap `ewallet-data`, jadi datanya sama baik dijalankan dari `backend/` maupun dari root.
-- `DB_USERNAME` dan `DB_PASSWORD` dipakai PostgreSQL saat volume pertama kali dibuat. Mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
-- Untuk database terkelola (bukan compose di atas), biasanya perlu SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
+- Jika `postgresql` gagal start karena alamat `172.17.0.1` belum ada saat boot (Docker belum jalan), ganti `listen_addresses = '*'` dan pastikan port 5432 diblokir dari luar oleh firewall.
+- Di development, volume database bernama tetap `ewallet-data`, jadi datanya sama baik dijalankan dari `backend/` maupun dari root. `DB_USERNAME` dan `DB_PASSWORD` dipakai saat volume pertama kali dibuat; mengubahnya setelah itu tidak mengubah user di database yang sudah ada.
+- Jika frontend server dijalankan sendiri (bukan lewat root), container-nya tidak bisa memakai nama `app` dan tidak bisa menjangkau API yang hanya terbuka di `127.0.0.1`. Jalankan lewat `docker-compose.prod.yml` di root.
+- Untuk database terkelola (bukan PostgreSQL native), biasanya perlu SSL: tambahkan `?sslmode=require` di akhir `DB_URL`.
 - Health check: `GET /actuator/health` (dari server itu sendiri, di `127.0.0.1`).
 - Image bisa dibangun sendiri: `docker build -t ewallet ./backend` dan `docker build -t ewallet-web ./frontend`. `.env` tidak pernah masuk ke image (`.dockerignore`).
 
@@ -336,9 +361,10 @@ pnpm test
 
 ```
 e-wallet/
-├── backend/                  # API Spring Boot (Maven, Dockerfile, docker-compose.yml, .env)
-├── frontend/                 # Aplikasi web (React, Vite, Dockerfile, nginx, docker-compose.yml, .env)
-└── docker-compose.yml        # menjalankan backend dan frontend sekaligus (memanggil compose masing-masing)
+├── backend/                  # API Spring Boot: Dockerfile, docker-compose.yml, docker-compose.prod.yml, .env
+├── frontend/                 # Aplikasi web (React, Vite, nginx): Dockerfile, docker-compose.yml, docker-compose.prod.yml, .env
+├── docker-compose.yml        # development: memanggil compose backend dan frontend
+└── docker-compose.prod.yml   # server: memanggil compose.prod backend dan frontend
 ```
 
 ```

@@ -1,11 +1,4 @@
-# Menjalankan seluruh aplikasi (database + API + frontend) sekaligus:
-#
-#   docker compose up -d --build
-#
-# File ini hanya memanggil compose milik masing-masing bagian, jadi keduanya juga bisa dijalankan sendiri:
-#   backend/docker-compose.yml    (API + PostgreSQL, pengaturan di backend/.env)
-#   frontend/docker-compose.yml   (nginx + aplikasi web, pengaturan di frontend/.env)
-# Butuh Docker Compose 2.20 atau lebih baru.
+# Development: docker compose up -d --build
 include:
   - path: backend/docker-compose.yml
   - path: frontend/docker-compose.yml
